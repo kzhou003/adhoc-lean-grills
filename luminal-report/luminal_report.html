@@ -1,0 +1,669 @@
+<title>Luminal 拆解</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a compiler-notebook page. Left rail = sticky contents on desktop; one reading column (~68ch);
+   diagrams break out to the column's full width inside scroll containers. Blue-slate ink on cool paper,
+   amber marks "the path the search picked". */
+:root{
+  --bg:#f5f7f9; --paper:#ffffff; --fg:#17212b; --muted:#5b6876; --line:#d5dde5; --soft:#e9eef3;
+  --accent:#1f5fa8; --accent-soft:#e3edf8; --pick:#c47a0c; --pick-soft:#fbf0dd;
+  --ok:#2f7d4f; --ok-soft:#e2f2e8; --warn:#b4432f; --warn-soft:#f8e5e1; --vio:#6a4fb0; --vio-soft:#ece8f7;
+  --edge:#7a8794; --code-bg:#eef2f6;
+  --f-display:"Noto Serif SC","Songti SC",Georgia,serif;
+  --f-body:"Noto Sans SC","PingFang SC","Helvetica Neue",Arial,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141a; --paper:#151c24; --fg:#e3e9ef; --muted:#97a4b2; --line:#2c3743; --soft:#1c252f;
+  --accent:#7fb2ec; --accent-soft:#1a2d44; --pick:#f0aa45; --pick-soft:#3a2a12;
+  --ok:#6cc893; --ok-soft:#163023; --warn:#ef8a76; --warn-soft:#3a1c17; --vio:#b2a0ea; --vio-soft:#272042;
+  --edge:#7f8c99; --code-bg:#1b232d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --paper:#151c24; --fg:#e3e9ef; --muted:#97a4b2; --line:#2c3743; --soft:#1c252f;
+  --accent:#7fb2ec; --accent-soft:#1a2d44; --pick:#f0aa45; --pick-soft:#3a2a12;
+  --ok:#6cc893; --ok-soft:#163023; --warn:#ef8a76; --warn-soft:#3a1c17; --vio:#b2a0ea; --vio-soft:#272042;
+  --edge:#7f8c99; --code-bg:#1b232d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16px;line-height:1.75;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px;padding-block:40px 80px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;font-size:13px;line-height:1.5}
+nav.toc .lbl{font-size:11px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:6px;border-left:1px solid var(--line)}
+nav.toc a{color:var(--muted);text-decoration:none;display:block;padding:1px 0 1px 12px;margin-left:-1px;border-left:2px solid transparent}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent);outline:none}
+main{min-width:0;max-width:820px}
+header.hero{padding-bottom:28px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;color:var(--muted);letter-spacing:.04em}
+h1{font-family:var(--f-display);font-weight:900;font-size:clamp(34px,6vw,52px);line-height:1.15;margin:10px 0 14px;text-wrap:balance}
+h1 .sub{display:block;font-size:.5em;font-weight:600;color:var(--muted);margin-top:8px}
+.thesis{font-size:18px;max-width:64ch}
+.thesis b{color:var(--accent)}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:16px;font-size:13px;color:var(--muted)}
+.meta code{font-size:12px}
+h2{font-family:var(--f-display);font-weight:600;font-size:27px;line-height:1.35;margin:56px 0 14px;text-wrap:balance;scroll-margin-top:24px}
+h2 .no{font-family:var(--f-mono);font-size:14px;color:var(--accent);font-weight:600;margin-right:10px;vertical-align:3px}
+h3{font-size:18px;font-weight:700;margin:30px 0 8px}
+p,li{max-width:68ch}
+a{color:var(--accent)}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--code-bg);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{font-family:var(--f-mono);font-size:13px;line-height:1.6;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;max-width:100%}
+pre code{background:none;padding:0;font-size:inherit;overflow-wrap:normal}
+pre .c{color:var(--muted)} pre .k{color:var(--vio)} pre .s{color:var(--ok)}
+.tldr{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px 22px;margin:20px 0}
+.tldr ol{margin:6px 0 0;padding-left:22px;display:grid;gap:6px}
+.tldr .lbl{font-size:12px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase}
+figure{margin:24px 0;background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px 14px 10px}
+figure .scroll{overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:640px}
+figcaption{font-size:13px;color:var(--muted);margin-top:8px;max-width:none}
+figcaption b{color:var(--fg)}
+/* svg vocabulary */
+.n{fill:var(--paper);stroke:var(--line);stroke-width:1.2}
+.n.acc{fill:var(--accent-soft);stroke:var(--accent)} .n.pick{fill:var(--pick-soft);stroke:var(--pick);stroke-width:2}
+.n.ok{fill:var(--ok-soft);stroke:var(--ok)} .n.warn{fill:var(--warn-soft);stroke:var(--warn)} .n.vio{fill:var(--vio-soft);stroke:var(--vio)}
+.cls{fill:none;stroke:var(--edge);stroke-dasharray:5 4;stroke-width:1.2}
+.grp{fill:var(--soft);stroke:none}
+.t{fill:var(--fg);font-family:var(--f-body);font-size:14px;font-weight:600}
+.ts{fill:var(--muted);font-family:var(--f-body);font-size:12px}
+.tm{fill:var(--fg);font-family:var(--f-mono);font-size:12.5px}
+.tl{fill:var(--muted);font-family:var(--f-body);font-size:11.5px}
+.e{fill:none;stroke:var(--edge);stroke-width:1.4}
+.e.flow{stroke-dasharray:6 5;animation:dash 1.2s linear infinite}
+.e.pick{stroke:var(--pick);stroke-width:2.2}
+.e.back{stroke:var(--accent);stroke-dasharray:6 5}
+.ah path{fill:var(--edge)} .ahp path{fill:var(--pick)} .aha path{fill:var(--accent)}
+@keyframes dash{to{stroke-dashoffset:-22}}
+@media (prefers-reduced-motion:reduce){.e.flow{animation:none}}
+/* callouts */
+.analogy{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:14px 18px;margin:18px 0}
+.analogy .lbl{font-size:12px;font-weight:700;color:var(--pick);letter-spacing:.08em}
+.analogy p{margin:4px 0 0}
+.note{border-left:3px solid var(--warn);background:var(--warn-soft);padding:10px 16px;border-radius:0 8px 8px 0;margin:18px 0}
+.note b{color:var(--warn)}
+.src{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.src a{font-family:var(--f-mono);font-size:12px;text-decoration:none;color:var(--accent);background:var(--accent-soft);border:1px solid transparent;border-radius:999px;padding:2px 10px;overflow-wrap:anywhere}
+.src a:hover,.src a:focus-visible{border-color:var(--accent);outline:none}
+.tbl{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;letter-spacing:.06em;color:var(--muted);font-weight:700;background:var(--soft)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td code{white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{font-family:var(--f-mono);font-size:12px;padding:3px 9px;border-radius:6px;background:var(--soft);border:1px solid var(--line)}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.btns button{font-family:var(--f-body);font-size:13px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+.btns button[aria-pressed="true"]{background:var(--pick-soft);border-color:var(--pick);color:var(--fg);font-weight:700}
+.btns button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#gnote{font-size:13px;color:var(--muted);min-height:3.2em;margin:6px 2px 0}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:18px 0}
+.verdict div{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.verdict h4{margin:0 0 6px;font-size:15px}
+.verdict ul{margin:0;padding-left:18px;font-size:14.5px}
+.verdict .plus h4{color:var(--ok)} .verdict .minus h4{color:var(--warn)} .verdict .learn h4{color:var(--accent)}
+footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+footer ol{padding-left:20px} footer li{max-width:none;overflow-wrap:anywhere}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr);gap:0}nav.toc{display:none}}
+</style>
+
+<!-- shared arrow markers -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="ah" class="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ahp" class="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="aha" class="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+<nav class="toc" aria-label="目录">
+  <div class="lbl">目录</div>
+  <ol>
+    <li><a href="#tldr">结论速览</a></li>
+    <li><a href="#problem">要解决的问题</a></li>
+    <li><a href="#pillars">三根支柱</a></li>
+    <li><a href="#pipeline">整体管线</a></li>
+    <li><a href="#egraph">e-graph 与 egglog</a></li>
+    <li><a href="#layout">布局层</a></li>
+    <li><a href="#search">搜索：遗传算法 + 实测</a></li>
+    <li><a href="#vendor">厂商库也进搜索空间</a></li>
+    <li><a href="#memory">内存规划与动态形状</a></li>
+    <li><a href="#flash">自动“发现” FlashAttention</a></li>
+    <li><a href="#hard">难点与解法总表</a></li>
+    <li><a href="#status">现状：实测数字</a></li>
+    <li><a href="#compare">与其他编译器对比</a></li>
+    <li><a href="#take">评价与借鉴</a></li>
+    <li><a href="#read">源码阅读路线</a></li>
+    <li><a href="#refs">资料来源</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">技术分析报告 · luminal-ai/luminal · 2026-11-03</div>
+  <h1>Luminal 拆解<span class="sub">一个“用搜索代替启发式”的推理编译器</span></h1>
+  <p class="thesis">Luminal 想用 <b>少量原语算子</b> + <b>非破坏式重写（e-graph）</b> + <b>在真机上实测的搜索</b>，代替“为每种模型 × 硬件 × 数据类型手写 kernel，再用一长串启发式 pass 去优化”的做法。下面拆开讲它在做什么、难在哪、怎么解，以及当前代码实际做到了哪一步。</p>
+  <div class="meta">
+    <span>源码基准 <code>main@1cbb917</code>（2026-10-29）</span>
+    <span>Rust · Apache-2.0 / MIT</span>
+    <span>GitHub ★ ≈ 3.0k</span>
+    <span>创建于 2023-07</span>
+  </div>
+</header>
+
+<section id="tldr">
+<div class="tldr">
+  <div class="lbl">结论速览</div>
+  <ol>
+    <li><b>它是什么</b>：一个 Rust 写的 AOT（提前编译）推理编译器。前端接 PyTorch（<code>torch.compile(backend=…)</code>）或自己的 Rust 张量 API，后端目前有 CUDA（<code>luminal_cuda_lite</code>）、Metal 和一个 CPU 参考实现。</li>
+    <li><b>核心赌注</b>：不写“什么时候该做什么优化”的规则，而是把所有<em>等价</em>的写法都塞进一个 e-graph，再在 GPU 上实测挑最快的。规则只需要回答“这样改对不对”，不用回答“这样改值不值”。</li>
+    <li><b>真正的难点</b>不在想法，而在工程：e-graph 会爆炸、e-graph 里的“代价”不可加、每条重写都必须在所有形状 / dtype / 动态维度下严格正确、实测一个候选很贵。</li>
+    <li><b>当前状态</b>：main 分支正在一次大重构（spec 里叫 “rejoin”）的中后期。新管线的正确性很扎实（与 PyTorch 对拍、形式化很重的 egglog 规则），但性能暂时远落后：H200 上 FP32 的 Llama3-8B 每 token 约 221 ms，没有注册融合 attention。README 里“~80% 理论峰值”“自动发现 FlashAttention”描述的是旧管线和公司的目标。</li>
+    <li><b>对你有用的地方</b>：它把 cuBLASLt（旧管线还有 FlashInfer）当作搜索空间里的普通候选，这正好给出“手写 kernel 库在编译器里的位置”的一种答案；它的布局代数和 CuTe 思路相通。</li>
+  </ol>
+</div>
+</section>
+
+<!-- ============ 1 problem ============ -->
+<h2 id="problem"><span class="no">01</span>它要解决的问题</h2>
+<p>部署一个模型，要面对三个相乘的维度：<b>模型结构</b>（LLM、扩散、MoE、CNN……）、<b>硬件</b>（H100、B200、Apple GPU、AMD……）、<b>数据类型</b>（fp32、bf16、fp8、nvfp4……）。主流框架的做法是为高频组合手写 kernel（FlashAttention、FlashInfer、cuBLAS、CUTLASS 模板），再用编译器 pass 把模型“降”到这些 kernel 上。</p>
+<p>Luminal 的 README 和 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/docs/why.mdx">why.mdx</a> 指出了两个问题：</p>
+<ul>
+  <li><b>组合爆炸</b>：每加一个设备，就要把框架支持的每个算子都实现一遍；再乘上 dtype，代码量几乎呈指数增长。</li>
+  <li><b>破坏式重写的复杂度</b>：XLA、TVM、torch.compile 的优化由大量“单向”改写组成。改写一旦执行，原图就没了，所以每条规则只能在<em>确定有收益</em>时才触发。判断“有没有收益”需要越来越多的特判和启发式，最后还是要靠 Triton / Pallas 这种 DSL 手工找回性能。</li>
+</ul>
+
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 880 300" role="img" aria-label="传统做法与 Luminal 做法对比">
+  <rect class="grp" x="10" y="10" width="420" height="280" rx="10"/>
+  <text class="ts" x="26" y="34">传统：手写 kernel 库 + 启发式 pass</text>
+  <rect class="n" x="26" y="52" width="120" height="44" rx="7"/><text class="t" x="86" y="79" text-anchor="middle">模型 × N</text>
+  <rect class="n" x="26" y="112" width="120" height="44" rx="7"/><text class="t" x="86" y="139" text-anchor="middle">硬件 × M</text>
+  <rect class="n" x="26" y="172" width="120" height="44" rx="7"/><text class="t" x="86" y="199" text-anchor="middle">dtype × K</text>
+  <rect class="n warn" x="226" y="96" width="188" height="76" rx="8"/>
+  <text class="t" x="320" y="126" text-anchor="middle">≈ N·M·K 个</text><text class="t" x="320" y="146" text-anchor="middle">手写 / 模板 kernel</text>
+  <rect class="n warn" x="226" y="200" width="188" height="56" rx="8"/>
+  <text class="t" x="320" y="224" text-anchor="middle">启发式 pass 管线</text><text class="ts" x="320" y="243" text-anchor="middle">何时融合？何时 tile？</text>
+  <path class="e" d="M146,74 C190,74 190,120 224,124" marker-end="url(#ah)"/>
+  <path class="e" d="M146,134 C186,134 190,134 224,134" marker-end="url(#ah)"/>
+  <path class="e" d="M146,194 C190,194 190,150 224,146" marker-end="url(#ah)"/>
+  <path class="e" d="M320,172 L320,198" marker-end="url(#ah)"/>
+
+  <rect class="grp" x="450" y="10" width="420" height="280" rx="10"/>
+  <text class="ts" x="466" y="34">Luminal：小原语集 + 等价重写 + 实测搜索</text>
+  <rect class="n" x="466" y="52" width="120" height="44" rx="7"/><text class="t" x="526" y="79" text-anchor="middle">任意模型</text>
+  <rect class="n acc" x="466" y="128" width="120" height="56" rx="7"/><text class="t" x="526" y="152" text-anchor="middle">~十几到</text><text class="t" x="526" y="171" text-anchor="middle">几十个原语</text>
+  <rect class="n vio" x="640" y="52" width="214" height="56" rx="8"/><text class="t" x="747" y="76" text-anchor="middle">每个后端：一组重写规则</text><text class="ts" x="747" y="95" text-anchor="middle">“原语模式 ≡ 我的 kernel / 库调用”</text>
+  <rect class="n acc" x="640" y="128" width="214" height="56" rx="8"/><text class="t" x="747" y="152" text-anchor="middle">e-graph：所有等价写法</text><text class="ts" x="747" y="171" text-anchor="middle">不删除任何一种</text>
+  <rect class="n ok" x="640" y="210" width="214" height="56" rx="8"/><text class="t" x="747" y="234" text-anchor="middle">在目标 GPU 上实测</text><text class="ts" x="747" y="253" text-anchor="middle">挑最快的那一份</text>
+  <path class="e" d="M526,96 L526,126" marker-end="url(#ah)"/>
+  <path class="e" d="M586,156 L638,156" marker-end="url(#ah)"/>
+  <path class="e" d="M747,108 L747,126" marker-end="url(#ah)"/>
+  <path class="e flow" d="M747,184 L747,208" marker-end="url(#ah)"/>
+</svg>
+</div>
+<figcaption><b>图 1</b> 左边的工作量随“模型 × 硬件 × dtype”相乘增长；右边每加一个后端，只需要写“原语模式 ↔ 后端实现”的等价规则，组合交给搜索。</figcaption>
+</figure>
+
+<div class="analogy"><div class="lbl">类比 · 菜谱 vs 食材</div>
+<p>传统框架像一本越来越厚的菜谱：每道菜 × 每种灶具 × 每种口味都写一页，还得附上“什么时候该换哪一页”的说明。Luminal 只规定十几种基本食材和刀法（原语），每种灶具（后端）只说明“这几样刀法合起来，我有一招更快的做法”。具体怎么组合，让厨房试做几轮，用秒表决定。</p></div>
+
+<!-- ============ 2 pillars ============ -->
+<h2 id="pillars"><span class="no">02</span>核心思路：三根支柱</h2>
+<h3>① RISC 式的小原语集（HLIR）</h3>
+<p>README 说一切最终都归结为 15 个原语：<code>Log2 Exp2 Sin Sqrt Recip</code>、<code>Add Mul Mod LessThan</code>、<code>SumReduce MaxReduce Iota Gather Scatter Cast</code>。注意几个刻意的选择：只有以 2 为底的 <code>Exp2/Log2</code>（<code>exp(x)=exp2(x·log2e)</code>），没有减法和除法（<code>a-b = a + b·(-1)</code>，<code>a/b = a·recip(b)</code>），矩阵乘也不是原语，而是“广播 → 逐元素乘 → 沿 k 求和”。</p>
+<p>当前分支的逻辑层比 README 多：<a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/op"><code>src/logical/op/</code></a> 下有约 36 个 <code>Logical*</code> 算子，增加了 <code>Select</code>、<code>And/Or/Not</code>、<code>Floor/Ceil/Round/Trunc</code>、<code>TruncDiv/TruncRem</code>、三种 scan 等。主要原因是对齐 PyTorch 的精确语义（整数取整方向、比特级 bool），见 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/design/associative-fold.md">associative-fold.md</a> 里关于 <code>prod = exp(sum(log x))</code> 在负数上出错的讨论。</p>
+
+<h3>② 非破坏式重写：e-graph（egglog）</h3>
+<p>所有优化都写成<b>等价关系</b>，而不是“替换”。e-graph 同时保存一个计算的所有等价写法，规则可以按任意顺序、反复触发，没有“先做哪个 pass”的问题。规则引擎是 <a href="https://github.com/egraphs-good/egglog">egglog</a>（Datalog + e-graph），Luminal 用自己的 fork：<a href="https://github.com/luminal-ai/egglog">luminal-ai/egglog</a>。</p>
+
+<h3>③ 以实测运行时间为代价函数的搜索</h3>
+<p>e-graph 里可能有天文数字种组合。Luminal 不写代价模型，而是采样候选、生成代码、在目标 GPU 上真跑，用遗传算法迭代。HN 上作者的话：“The best heuristic is no heuristic.”</p>
+<p>另外两个配套原则：<b>一切 AOT</b>（整个网络是静态图，编译器有全局视野），以及<b>原生的符号维度</b>（<code>(s, 4096)</code>、<code>(b, h, w+3)</code>），用分桶（bucket）为不同的动态取值范围分别搜索。</p>
+
+<!-- ============ 3 pipeline ============ -->
+<h2 id="pipeline"><span class="no">03</span>整体管线</h2>
+<p>spec 里写着当前分支的管线是 <code>recorder → egglog_core → runtime 自己负责的 extraction/search → bufferize → runtime</code>。展开如下：</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 950 330" role="img" aria-label="Luminal 编译管线">
+  <text class="tl" x="12" y="20">饱和阶段（每个程序一次）</text>
+  <rect class="n" x="10" y="30" width="166" height="64" rx="8"/><text class="t" x="93" y="56" text-anchor="middle">前端</text><text class="ts" x="93" y="77" text-anchor="middle">torch.compile / Rust API</text>
+  <rect class="n" x="200" y="30" width="166" height="64" rx="8"/><text class="t" x="283" y="56" text-anchor="middle">逻辑图（HLIR）</text><text class="ts" x="283" y="77" text-anchor="middle">Logical* 原语 + 符号形状</text>
+  <rect class="n vio" x="390" y="30" width="166" height="64" rx="8"/><text class="t" x="473" y="56" text-anchor="middle">egglog 饱和</text><text class="ts" x="473" y="77" text-anchor="middle">逻辑 / 布局 / 后端规则</text>
+  <rect class="n acc" x="580" y="30" width="166" height="64" rx="8"/><text class="t" x="663" y="56" text-anchor="middle">e-graph</text><text class="ts" x="663" y="77" text-anchor="middle">所有等价实现的压缩表示</text>
+  <rect class="n" x="770" y="30" width="170" height="64" rx="8"/><text class="t" x="855" y="56" text-anchor="middle">内存剪枝</text><text class="ts" x="855" y="77" text-anchor="middle">超出显存预算的候选删掉</text>
+  <path class="e" d="M176,62 L198,62" marker-end="url(#ah)"/>
+  <path class="e" d="M366,62 L388,62" marker-end="url(#ah)"/>
+  <path class="e" d="M556,62 L578,62" marker-end="url(#ah)"/>
+  <path class="e" d="M746,62 L768,62" marker-end="url(#ah)"/>
+
+  <text class="tl" x="12" y="180">搜索阶段（每个动态维度 bucket 一次，循环）</text>
+  <rect class="n pick" x="770" y="190" width="170" height="64" rx="8"/><text class="t" x="855" y="216" text-anchor="middle">采样 genome</text><text class="ts" x="855" y="237" text-anchor="middle">每个 e-class 选一个 e-node</text>
+  <rect class="n" x="580" y="190" width="166" height="64" rx="8"/><text class="t" x="663" y="216" text-anchor="middle">提取 + DPS + bufferize</text><text class="ts" x="663" y="237" text-anchor="middle">得到带存储的执行计划</text>
+  <rect class="n" x="390" y="190" width="166" height="64" rx="8"/><text class="t" x="473" y="216" text-anchor="middle">代码生成</text><text class="ts" x="473" y="237" text-anchor="middle">NVRTC kernel / cuBLASLt</text>
+  <rect class="n ok" x="200" y="190" width="166" height="64" rx="8"/><text class="t" x="283" y="216" text-anchor="middle">GPU 上实测</text><text class="ts" x="283" y="237" text-anchor="middle">预热 + 3 次计时</text>
+  <rect class="n acc" x="10" y="190" width="166" height="64" rx="8"/><text class="t" x="93" y="216" text-anchor="middle">最优计划</text><text class="ts" x="93" y="237" text-anchor="middle">运行时按 dyn_map 分发</text>
+  <path class="e" d="M855,94 L855,188" marker-end="url(#ah)"/>
+  <path class="e flow" d="M770,222 L748,222" marker-end="url(#ah)"/>
+  <path class="e flow" d="M580,222 L558,222" marker-end="url(#ah)"/>
+  <path class="e flow" d="M390,222 L368,222" marker-end="url(#ah)"/>
+  <path class="e" d="M200,222 L178,222" marker-end="url(#ah)"/>
+  <path class="e back" d="M283,254 C283,316 855,316 855,256" marker-end="url(#aha)"/>
+  <text class="tl" x="569" y="324" text-anchor="middle">按耗时排名 → 变异 → 下一代（默认 8 代 × 每代 8 个）</text>
+</svg>
+</div>
+<figcaption><b>图 2</b> 上排只跑一次：把程序和所有规则饱和成一个 e-graph。下排是搜索循环：每轮从 e-graph 里“抽”出一份具体实现，编出来、跑一下、排名。</figcaption>
+</figure>
+
+<div class="tbl"><table>
+<thead><tr><th>阶段</th><th>做什么</th><th>源码</th></tr></thead>
+<tbody>
+<tr><td>前端</td><td>PyTorch 走 <code>torch.compile</code> 导出 Core ATen IR，逐个 ATen 算子翻译成 Logical 原语；也可以直接用 Rust <code>GraphTensor</code> API 建图</td><td><a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/pytorch/utils/src/translate">pytorch/…/translate/</a> · <a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/frontend">src/frontend/</a></td></tr>
+<tr><td>逻辑 IR</td><td>每个算子一个目录：构造器 + dtype / shape / 布局推导 + 代数重写，各是一个 <code>.egg</code> 文件</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/op/mod.rs">logical/op/mod.rs</a> · <a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/op/add">op/add/</a></td></tr>
+<tr><td>egglog 核心</td><td>整数表达式、形状、布局的“前导程序”（5000+ 行 egglog）</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/egglog_core/egglog_preamble.egg">egglog_preamble.egg</a></td></tr>
+<tr><td>后端规则</td><td>“逻辑模式 + 布局条件 ≡ 这个 CUDA kernel / 库调用”</td><td><a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops">luminal_cuda_lite/src/ops/</a></td></tr>
+<tr><td>提取</td><td>给定 genome，遍历 e-graph 得到一张具体的数据流图</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/extraction.rs#L512">extraction.rs · extract_with_genome</a></td></tr>
+<tr><td>搜索</td><td>采样、变异、实测、留下前几名作为后备</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/search.rs#L355">cuda search.rs · search_implementations</a> · <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L420">search_support.rs</a></td></tr>
+<tr><td>Bufferize</td><td>MLIR 风格的 one-shot bufferization，决定谁原地写、谁要新分配、哪里要拷贝</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/buffer/bufferize.rs#L1739">bufferize.rs · bufferize</a></td></tr>
+<tr><td>代码生成 / 运行</td><td>把几何参数当字面量写进 CUDA 源码，用 NVRTC 编译；库调用走 host op；用 CUDA Graph 回放</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/kernels.rs#L479">kernels.rs · KernelOp</a> · <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/cuda_graph.rs">cuda_graph.rs</a></td></tr>
+<tr><td>语义参考</td><td>CPU 上的完整参考实现，所有后端都和它对拍</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_reference/src/runtime.rs">luminal_reference/runtime.rs</a></td></tr>
+</tbody></table></div>
+
+<!-- ============ 4 egraph ============ -->
+<h2 id="egraph"><span class="no">04</span>深入：e-graph 与 egglog</h2>
+<h3>为什么“非破坏式”很关键</h3>
+<p>经典例子（来自 egg 论文）：表达式 <code>(a×2)/2</code>，有两条规则：强度削减 <code>x×2 → x≪1</code>，以及消去 <code>(x×y)/y → x</code>。用传统 pass 管线时，如果强度削减先跑，表达式变成 <code>(a≪1)/2</code>，消去规则就再也匹配不上了。这就是 <b>phase ordering 问题</b>：结果取决于 pass 的顺序，于是只能写启发式来决定顺序和触发条件。</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 880 250" role="img" aria-label="破坏式重写与 e-graph 对比">
+  <text class="ts" x="20" y="22">破坏式：改写后原式消失</text>
+  <rect class="n" x="40" y="36" width="300" height="42" rx="7"/><text class="tm" x="190" y="62" text-anchor="middle">(a × 2) / 2</text>
+  <rect class="n" x="40" y="112" width="300" height="42" rx="7"/><text class="tm" x="190" y="138" text-anchor="middle">(a ≪ 1) / 2</text>
+  <rect class="n warn" x="40" y="188" width="300" height="42" rx="7"/><text class="t" x="190" y="214" text-anchor="middle">卡住：消去规则匹配不上</text>
+  <path class="e" d="M190,78 L190,110" marker-end="url(#ah)"/><text class="tl" x="200" y="98">规则1：x×2 → x≪1</text>
+  <path class="e" d="M190,154 L190,186" marker-end="url(#ah)"/><text class="tl" x="200" y="174">规则2 找不到 (x×y)/y</text>
+
+  <text class="ts" x="470" y="22">e-graph：两种写法都留在同一个等价类里</text>
+  <rect class="n" x="500" y="36" width="340" height="42" rx="7"/><text class="tm" x="670" y="62" text-anchor="middle">( · ) / 2</text>
+  <rect class="cls" x="490" y="102" width="360" height="62" rx="10"/>
+  <text class="tl" x="500" y="118">e-class</text>
+  <rect class="n" x="530" y="118" width="130" height="36" rx="6"/><text class="tm" x="595" y="141" text-anchor="middle">a × 2</text>
+  <rect class="n" x="690" y="118" width="130" height="36" rx="6"/><text class="tm" x="755" y="141" text-anchor="middle">a ≪ 1</text>
+  <rect class="n ok" x="500" y="188" width="340" height="42" rx="7"/><text class="t" x="670" y="214" text-anchor="middle">规则2 通过 a×2 这一写法匹配：(a×2)/2 ≡ a</text>
+  <path class="e" d="M670,78 L670,100" marker-end="url(#ah)"/>
+  <path class="e" d="M670,164 L670,186" marker-end="url(#ah)"/>
+</svg>
+</div>
+<figcaption><b>图 3</b> e-graph 不“替换”，只“合并等价类”，所以规则的触发顺序不影响最终能到达的写法集合。代价是图会变大，这正是后面要解决的难点。</figcaption>
+</figure>
+
+<div class="analogy"><div class="lbl">类比 · 下棋落子 vs 摆出所有棋谱</div>
+<p>破坏式 pass 像下棋时落子无悔：每一步都必须当场判断好坏，走错了回不去。e-graph 像把所有合法走法都画在一张棋谱树上（而且相同局面只画一次），最后再挑一条线。规则作者只需要保证每一步“合法”，不必判断“好不好”。</p></div>
+
+<h3>一条真实的规则：把“广播-乘-求和”识别为矩阵乘</h3>
+<p>矩阵乘不是原语，它是一个模式。下面这条规则把这个模式和一个辅助节点 <code>LogicalHelperMatrixMultiply</code> 合并到同一个 e-class，后端规则只需要匹配这一个节点：</p>
+<pre><code><span class="c">; src/logical/helper/matrix_multiply/recognize.egg</span>
+(<span class="k">rule</span>
+  ((= ?out  (LogicalReduceSum ?prod 0))
+   (= ?prod (LogicalMul ?a_b ?b_b))
+   (= ?a_b  (LogicalHelperBroadcastAxis ?a 1 ?n))
+   (= ?b_b  (LogicalHelperBroadcastAxis ?bT 2 ?m))
+   (= (shape-of ?prod) (ShapeLit [?m ?n ?k]))      <span class="c">; 形状把两条腿绑到同一个 [m,n,k]</span>
+   (= (shape-of ?a)    (ShapeLit [?m ?k]))
+   (= (shape-of ?bT)   (ShapeLit [?n ?k])))
+  ((<span class="k">union</span> ?out (LogicalHelperMatrixMultiply ?a (LogicalHelperMatrixTranspose ?bT))))
+  :ruleset main_ruleset
+  :name <span class="s">"helper/matrix_multiply/recognize: reduce-sum of broadcast muls is a MatrixMultiply"</span>)</code></pre>
+<p>关键字是 <code>union</code>，不是“替换”。另外有一条方向相反的 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/helper/matrix_multiply/expand.egg">expand.egg</a>，把矩阵乘展开回原语链。两个方向同时存在，正是非破坏式的意思。博客里提到一个好处：模型作者没有显式写 matmul 的地方，只要出现这个模式，也会被识别出来。</p>
+<div class="src">
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/helper/matrix_multiply/recognize.egg">recognize.egg</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/helper/matrix_multiply/expand.egg">expand.egg</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/frontend/matmul.rs">frontend/matmul.rs</a>
+<a href="https://egraphs-good.github.io/">egraphs-good 项目主页</a>
+<a href="https://arxiv.org/abs/2004.03082">egg 论文 (POPL 2021)</a>
+<a href="https://arxiv.org/abs/2304.04332">egglog 论文 (PLDI 2023)</a>
+</div>
+
+<h3>可交互：一个 e-graph，三种 genome</h3>
+<p>下图是上面矩阵乘的 e-graph。虚线框是 e-class（一组等价计算），实线框是 e-node（一种写法）。搜索里的 <b>genome</b> 就是“每个 e-class 选哪个 e-node”。点按钮看不同 genome 选出的实现：</p>
+<figure>
+<div class="btns" role="group" aria-label="选择 genome">
+  <button type="button" id="g1" aria-pressed="true">genome A：通用 kernel</button>
+  <button type="button" id="g2" aria-pressed="false">genome B：矩阵乘辅助节点</button>
+  <button type="button" id="g3" aria-pressed="false">genome C：cuBLASLt</button>
+</div>
+<div class="scroll">
+<svg viewBox="0 0 820 370" role="img" aria-label="矩阵乘的 e-graph 示意">
+  <rect class="cls" x="20" y="20" width="780" height="72" rx="12"/><text class="tl" x="30" y="34">e-class：out[m,n]</text>
+  <rect id="en1" class="n" x="40" y="40" width="220" height="38" rx="7"/><text class="tm" x="150" y="64" text-anchor="middle">ReduceSum(·, k)</text>
+  <rect id="en2" class="n" x="300" y="40" width="220" height="38" rx="7"/><text class="tm" x="410" y="64" text-anchor="middle">MatMul(a, b)</text>
+  <rect id="en3" class="n" x="560" y="40" width="220" height="38" rx="7"/><text class="tm" x="670" y="64" text-anchor="middle">CublasLt(A, B → D)</text>
+
+  <rect class="cls" x="40" y="128" width="300" height="70" rx="12"/><text class="tl" x="50" y="142">e-class：prod[m,n,k]</text>
+  <rect id="enp" class="n" x="90" y="148" width="200" height="36" rx="7"/><text class="tm" x="190" y="171" text-anchor="middle">Mul(·, ·)</text>
+  <rect class="cls" x="40" y="218" width="140" height="58" rx="12"/>
+  <rect id="ena" class="n" x="50" y="230" width="120" height="34" rx="7"/><text class="tm" x="110" y="252" text-anchor="middle">Bcast(a, n)</text>
+  <rect class="cls" x="200" y="218" width="140" height="58" rx="12"/>
+  <rect id="enb" class="n" x="210" y="230" width="120" height="34" rx="7"/><text class="tm" x="270" y="252" text-anchor="middle">Bcast(bᵀ, m)</text>
+  <rect class="cls" x="40" y="294" width="300" height="58" rx="12"/><text class="tl" x="50" y="346">输入</text>
+  <rect class="n" x="50" y="302" width="120" height="34" rx="7"/><text class="tm" x="110" y="324" text-anchor="middle">a[m,k]</text>
+  <rect class="n" x="210" y="302" width="120" height="34" rx="7"/><text class="tm" x="270" y="324" text-anchor="middle">bᵀ[n,k]</text>
+
+  <path id="ep1" class="e" d="M150,78 C150,104 190,104 190,146" marker-end="url(#ah)"/>
+  <path id="ep2" class="e" d="M160,184 L118,228" marker-end="url(#ah)"/>
+  <path id="ep3" class="e" d="M220,184 L262,228" marker-end="url(#ah)"/>
+  <path id="ep4" class="e" d="M110,264 L110,300" marker-end="url(#ah)"/>
+  <path id="ep5" class="e" d="M270,264 L270,300" marker-end="url(#ah)"/>
+  <path id="ep6" class="e" d="M410,78 C410,250 390,312 342,312" marker-end="url(#ah)"/>
+  <path id="ep7" class="e" d="M670,78 C670,280 420,332 342,332" marker-end="url(#ah)"/>
+
+  <text class="ts" x="440" y="128">虚线框 = e-class：一组等价的计算</text>
+  <text class="ts" x="440" y="150">实线框 = e-node：其中一种写法</text>
+  <text class="ts" x="440" y="172">genome = 每个 e-class 选一个 e-node</text>
+  <text class="ts" x="440" y="194">没被选中的子图根本不会被提取</text>
+</svg>
+</div>
+<p id="gnote" aria-live="polite"></p>
+<figcaption><b>图 4</b> 简化示意：真实 e-graph 里每个张量还带着布局（见下一节），cuBLASLt 节点还挂着描述符、精度证明等事实节点。</figcaption>
+</figure>
+
+<!-- ============ 5 layout ============ -->
+<h2 id="layout"><span class="no">05</span>深入：布局层（逻辑值 × 物理布局）</h2>
+<p>Luminal 把“算什么”和“数据在内存里怎么摆”分成两件事。逻辑 IR 里的张量<b>没有物理布局</b>（spec：只有输入输出有）；在 e-graph 里，<code>LayoutTensorLit(逻辑值, 布局)</code> 把两者配对，同一个逻辑值可以有很多种布局写法，而且它们都在 e-graph 里互相等价。</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 820 220" role="img" aria-label="布局发现阶梯">
+  <rect class="n" x="20" y="14" width="780" height="196" rx="12"/>
+  <text class="t" x="36" y="38">BitOffsetExpression</text><text class="ts" x="210" y="38">任意比特偏移表达式（可表达 bool 打包、子字节 dtype）</text>
+  <rect class="n acc" x="46" y="52" width="728" height="148" rx="10"/>
+  <text class="t" x="62" y="76">ElementOffsetExpression</text><text class="ts" x="256" y="76">按元素的偏移表达式（dtype 允许时从上一层发现）</text>
+  <rect class="n vio" x="72" y="90" width="676" height="100" rx="9"/>
+  <text class="t" x="88" y="114">StridedElement</text><text class="ts" x="210" y="114">shape + stride（零偏移时才能发现）</text>
+  <rect class="n ok" x="98" y="128" width="300" height="50" rx="8"/><text class="t" x="248" y="150" text-anchor="middle">RightMajorContiguous</text><text class="ts" x="248" y="168" text-anchor="middle">行主序紧凑</text>
+  <rect class="n ok" x="420" y="128" width="300" height="50" rx="8"/><text class="t" x="570" y="150" text-anchor="middle">LeftMajorContiguous</text><text class="ts" x="570" y="168" text-anchor="middle">列主序紧凑</text>
+</svg>
+</div>
+<figcaption><b>图 5</b> “向下发现”的布局阶梯（preamble 开头的清单）：越里层越具体，越容易被硬件 kernel 直接使用。规则自动从通用表达式里“认出”更具体的形式。</figcaption>
+</figure>
+<p>后端规则只匹配硬件能直接用的那种写法。例如 CUDA 的 ReduceSum kernel 写的是 <code>out[i]</code>，所以规则要求输出布局是行主序紧凑，并且映射是单射：</p>
+<pre><code><span class="c">; crates/luminal_cuda_lite/src/ops/reduce_sum/match_functional.egg（节选）</span>
+(= ?out_layout (RightMajorContiguousElementLayoutLit ?out_rm_shape ?out_rm_bits))
+(= ?out_logical (LogicalReduceSum ?in_logical ?reduction_dim))
+(!= ?value_dtype (Int))                         <span class="c">; 整数单独一条规则：要处理回绕语义</span>
+(= (injectivity-of ?out_layout_tensor) (Injective))
+<span class="c">; ⇒ union 成 LayoutTensorOpReduceSumGeneric（一个具体 CUDA kernel）</span></code></pre>
+<p>注释写道：“The e-graph joins equivalent spellings; the matcher matches the hardware's literal one.” 也就是说：<b>等价性交给 e-graph，硬件约束交给匹配条件</b>。转置、切片这类“视图”在这一层只是布局的改变，可以零拷贝；需要实体化时再插入 <code>MaterializeLayoutCopy</code>，是否插入同样由搜索决定。</p>
+<div class="analogy"><div class="lbl">类比 · 同一本书的不同排版</div>
+<p>逻辑值是书的内容，布局是排版：横排、竖排、双栏都是同一本书。e-graph 把所有排版都登记成“同一本书”；每台印刷机（kernel）只接受某一种排版的稿子。搜索要决定：直接用现成的排版送印，还是先花时间重排一遍（layout copy）再送去更快的印刷机。这和你在 G2 里学的 CuTe Layout（坐标 → 偏移的函数）是同一类思想。</p></div>
+<div class="src">
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/layout/layouts.rs">layout/layouts.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/layout/element_stride_discovery.egg">element_stride_discovery.egg</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/layout/ir.rs">layout/ir.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/reduce_sum/match_functional.egg">reduce_sum/match_functional.egg</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/boolean-bits.md">boolean-bits.md</a>
+</div>
+
+<!-- ============ 6 search ============ -->
+<h2 id="search"><span class="no">06</span>深入：搜索（遗传算法 + 真机实测）</h2>
+<p>为什么不像 egg 那样用代价函数做贪心提取？因为在 kernel 层面<b>代价不可加</b>：同一个 matmul，用 cuBLASLt 本身更快，但如果它要求的布局导致前后各多一次拷贝，整体可能更慢；融合、内存复用、launch 开销都是全局性质。Luminal 的选择是：不建模，直接测。</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 820 250" role="img" aria-label="遗传搜索循环">
+  <rect class="n pick" x="20" y="34" width="170" height="60" rx="8"/><text class="t" x="105" y="59" text-anchor="middle">采样 genome</text><text class="ts" x="105" y="79" text-anchor="middle">独立 + 相关两种抽法</text>
+  <rect class="n" x="220" y="34" width="170" height="60" rx="8"/><text class="t" x="305" y="59" text-anchor="middle">提取</text><text class="ts" x="305" y="79" text-anchor="middle">保证无环</text>
+  <rect class="n" x="420" y="34" width="170" height="60" rx="8"/><text class="t" x="505" y="59" text-anchor="middle">规划</text><text class="ts" x="505" y="79" text-anchor="middle">DPS + bufferize + 显存预算</text>
+  <rect class="n" x="620" y="34" width="180" height="60" rx="8"/><text class="t" x="710" y="59" text-anchor="middle">编译 + 预热</text><text class="ts" x="710" y="79" text-anchor="middle">NVRTC 模块缓存复用</text>
+  <rect class="n ok" x="620" y="160" width="180" height="60" rx="8"/><text class="t" x="710" y="185" text-anchor="middle">计时 3 次</text><text class="ts" x="710" y="205" text-anchor="middle">超时只算运行时间</text>
+  <rect class="n acc" x="420" y="160" width="170" height="60" rx="8"/><text class="t" x="505" y="185" text-anchor="middle">排名</text><text class="ts" x="505" y="205" text-anchor="middle">保留前 4 名作后备</text>
+  <rect class="n vio" x="220" y="160" width="170" height="60" rx="8"/><text class="t" x="305" y="185" text-anchor="middle">变异</text><text class="ts" x="305" y="205" text-anchor="middle">每个后代 2 处点突变</text>
+  <path class="e" d="M190,64 L218,64" marker-end="url(#ah)"/>
+  <path class="e" d="M390,64 L418,64" marker-end="url(#ah)"/>
+  <path class="e" d="M590,64 L618,64" marker-end="url(#ah)"/>
+  <path class="e" d="M710,94 L710,158" marker-end="url(#ah)"/>
+  <path class="e" d="M620,190 L592,190" marker-end="url(#ah)"/>
+  <path class="e" d="M420,190 L392,190" marker-end="url(#ah)"/>
+  <path class="e back" d="M220,190 C120,190 105,150 105,96" marker-end="url(#aha)"/>
+  <text class="tl" x="40" y="160">下一代</text>
+</svg>
+</div>
+<figcaption><b>图 6</b> CUDA 后端 <code>CompileOptions</code> 的默认值：8 代 × 每代 8 个候选、每个后代 2 处突变、3 次计时、保留 4 个后备。被拒的候选（提取失败、超显存、超时）分门别类计入 <code>RefusalBreakdown</code>。</figcaption>
+</figure>
+<p>几个细节值得注意：</p>
+<ul>
+  <li><b>无环保证</b>：e-graph 本身可以有环（<code>x ≡ x+0</code>），genome 的选择必须构成 DAG。采样和变异都维持这个不变式（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L629"><code>mutate_genome</code></a> 里的 <code>flip_closes_cycle</code>）。</li>
+  <li><b>相关采样</b>：源码注释写道，独立地为每个位置抽选择，在大型重复图上“几乎永远抽不出一个连贯的实现”，因为每个候选里总会混进几条巨大的实体化路线。于是还有一种抽法：随机排一个“实现族”顺序，整个 genome 共用这个顺序（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L443"><code>sample_genome_correlated</code></a>）。</li>
+  <li><b>“描述”与“决定”分离</b>：core 只负责“把 genome 变成图”和“怎么抽 genome”，不做任何选择；怎么给候选定价、循环怎么跑，归每个 runtime 自己（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/lib.rs">lib.rs 顶部注释</a>）。</li>
+  <li><b>搜索不负责正确性</b>：spec 明确规定，所有可提取的图都必须等价，搜索只比快慢，不允许“绕开”一个已知错误的候选。错了就去修规则。</li>
+</ul>
+<pre><code><span class="c">// crates/luminal_cuda_lite/src/search.rs</span>
+<span class="k">impl</span> Default <span class="k">for</span> CompileOptions {
+    <span class="k">fn</span> default() -> Self { Self {
+        generations: 8, generation_size: 8, mutations: 2, trials: 3,
+        seed: 0, keep_finalists: 4, candidate_timeout: None,
+        device_budget_bytes: None, <span class="c">/* 默认取可用 CUDA 显存 */</span> .. } }
+}</code></pre>
+<div class="analogy"><div class="lbl">类比 · 试驾，而不是读参数表</div>
+<p>代价模型像读汽车参数表：马力、扭矩都很漂亮，但上了真实路况（布局拷贝、launch 开销、缓存）不一定快。Luminal 每一代挑 8 辆车去同一条赛道各跑 3 圈，留下最快的几辆，把它们的零件（每个 e-class 的选择）随机换掉两处，再跑下一轮。缺点也一样：试驾很花时间。</p></div>
+<div class="src">
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/search.rs#L27">search.rs · CompileOptions</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/extraction.rs#L555">extraction.rs · Genome</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L420">search_support.rs · sample_genome</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/profile.rs">profile.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/finalists.rs">finalists.rs</a>
+</div>
+
+<!-- ============ 7 vendor ============ -->
+<h2 id="vendor"><span class="no">07</span>深入：厂商库也是搜索空间里的普通候选</h2>
+<p>“不写手写 kernel”不等于“不用手写 kernel”。cuBLASLt 调用在 Luminal 里就是一种 e-node，和生成的通用 kernel 平起平坐，由搜索决定用不用。难点在于：库调用的参数空间（转置、主序、leading dimension、batch stride、精度、epilogue）很大，而且每种组合在什么条件下合法，必须被严格证明。</p>
+<p>当前做法分四步，每步一组 egglog 规则（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/cublaslt/README.md">cublaslt/README.md</a>）：</p>
+<ol>
+  <li><b>算术识别</b>：认出 <code>D = α·op(A)·op(B) + β·C</code> 加可选 epilogue（bias、ReLU、GELU）。这一步只是“命名”，不代表允许执行。</li>
+  <li><b>布局证明</b>：证明某个存储张量确实按某个 vendor 描述符（7 个字段：dtype、主序、行、列、ld、batch 数、batch stride）寻址。</li>
+  <li><b>精度证明</b>：只有作者显式写出的精确扩宽才允许直接读 BF16 / FP16；存储格式不能决定计算精度。</li>
+  <li><b>准入</b>：上面这些事实再和白名单里的某一条完整配置对上，才生成可执行节点。白名单有 <b>2,176 条</b>完整配置，文件 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/cublaslt/egg/approved_whitelist.egg">approved_whitelist.egg</a> 有 21,787 行。空白名单就什么都不生成。</li>
+</ol>
+<div class="analogy"><div class="lbl">类比 · 海关清关</div>
+<p>认出“这是一箱电子产品”（识别）不等于可以入境。还要有装箱单（布局证明）、原产地证明（精度证明），而且商品编码必须在海关的准入清单上（白名单）。任何一张单据缺了，这箱货就留在仓库（不生成可执行节点），搜索就只能走通用 kernel 那条路。</p></div>
+<p><b>和 FlashInfer 的关系</b>：README 的“Where are we”里写着 “Many kernel libraries supported in the search space (FlashInfer, cuBLASLt, etc.)”，这是旧管线的状态。<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/BRINGUP.md">BRINGUP.md</a> 把旧 crate 描述为一个“零件库”（cuBLASLt / FlashInfer / MoE、CUDA Graph），并说明新管线是按 CL-3 阶段逐个迁回来的。目前迁回来的只有 cuBLASLt。环境变量 <code>LUMINAL_FLASHINFER_DIR</code> 等仍留在 README 中。</p>
+
+<!-- ============ 8 memory ============ -->
+<h2 id="memory"><span class="no">08</span>深入：内存规划与动态形状</h2>
+<h3>DPS + one-shot bufferization</h3>
+<p>提取出来的图里，中间值还没有存储。Luminal 先把每个算子改写成“目标传递”风格（DPS：输出缓冲区作为参数传入），再用 MLIR 风格的 one-shot bufferization 决定原地复用还是新分配。冲突引擎检查三件事：<b>可写性</b>（不能写只读绑定）、<b>写后读</b>（所有读必须在 DAG 上可证明地先于覆盖写）、<b>跨操作数共享许可</b>（只有算子自己声明了 <code>Sharing::May</code> 才允许）。被拒的原地复用一律“修复”成新分配加必要的拷贝，所以拒绝永远不是错误。</p>
+<div class="analogy"><div class="lbl">类比 · 酒店排房</div>
+<p>每个中间张量是一位住客，入住和退房时间（生命周期）事先都知道。排房员（bufferize）尽量让新客人住进刚退的房间（原地复用），但有两条铁律：房间还有人要回来拿东西（后续还有读）时不能让给别人，标着“禁止入住”的房间（只读输入）不能用。排不下就另开一间（新分配），需要的话先把行李搬过去（拷贝）。</p></div>
+<h3>显存剪枝</h3>
+<p>搜索之前，CUDA 后端会对 e-graph 做一次强制的内存剪枝：在整个声明的动态维度范围内，物理容量超过显存预算的张量连同它们的生产者实现一起删掉，边界张量不能删（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/egraph_postpass.rs">egraph_postpass.rs</a>）。这样搜索根本不会抽到“需要 200 GB 中间结果”的路线。这属于“删掉不可行的候选”，不违反“不在 Rust 里做模式匹配和选择”的规定。</p>
+<h3>符号维度与分桶</h3>
+<p>形状是整数表达式（<code>c + q</code>、<code>ceil(n/128)</code>），egglog 前导程序里有一整套带值域的整数代数：截断除法与向上取整除法分成不同构造器，除法只在能证明除数非零时才参与合并。运行时给出 <code>dyn_map</code>（如 <code>{q:1, c:812}</code>），按所在 bucket 分发到对应编译结果。spec 要求：在代表点上测出来的最优计划，必须在整个声明范围内都合法。</p>
+<div class="src">
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/buffer/bufferize.rs">bufferize.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/layout/dps.rs">layout/dps.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/bucketing.rs">bucketing.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/shape/expression.rs">shape/expression.rs</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/design/application-bucketing.md">application-bucketing.md</a>
+<a href="https://mlir.llvm.org/docs/Bufferization/">MLIR Bufferization 文档</a>
+</div>
+
+<!-- ============ 9 flash ============ -->
+<h2 id="flash"><span class="no">09</span>自动“发现” FlashAttention：说法与现状</h2>
+<p>这是 Luminal 最出名的一句话：不靠手写算子，靠搜索自动找到 FlashAttention 这类复杂优化。按作者在 Show HN 帖子中的解释，路径是：重写规则里既有<b>循环 / 分块结构</b>的改写，也有<b>代数</b>改写，其中关键一条是 <b>softmax → online softmax</b>。两者组合之后，搜索空间里就出现了“按 KV 分块、在块间重缩放、S 矩阵不落显存”的写法，也就是 FlashAttention 的结构。</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 900 270" role="img" aria-label="从朴素 attention 到 FlashAttention 结构的改写路径">
+  <text class="ts" x="20" y="22">朴素写法（由原语直接拼出）</text>
+  <rect class="n warn" x="20" y="34" width="250" height="60" rx="8"/><text class="tm" x="145" y="59" text-anchor="middle">S = Q·Kᵀ</text><text class="ts" x="145" y="80" text-anchor="middle">N×N 整块写回 HBM</text>
+  <rect class="n warn" x="320" y="34" width="250" height="60" rx="8"/><text class="tm" x="445" y="59" text-anchor="middle">P = softmax(S)</text><text class="ts" x="445" y="80" text-anchor="middle">max → exp2 → sum → recip</text>
+  <rect class="n warn" x="620" y="34" width="250" height="60" rx="8"/><text class="tm" x="745" y="59" text-anchor="middle">O = P·V</text><text class="ts" x="745" y="80" text-anchor="middle">再读一遍 N×N</text>
+  <path class="e" d="M270,64 L318,64" marker-end="url(#ah)"/>
+  <path class="e" d="M570,64 L618,64" marker-end="url(#ah)"/>
+  <path class="e flow" d="M445,96 L445,160" marker-end="url(#ah)"/>
+  <text class="tl" x="455" y="124">e-graph 里加入等价写法</text>
+  <text class="ts" x="20" y="152">FlashAttention 结构（同一 e-class 里的另一种写法）</text>
+  <rect class="n vio" x="20" y="164" width="250" height="64" rx="8"/><text class="t" x="145" y="190" text-anchor="middle">循环 / 分块改写</text><text class="ts" x="145" y="211" text-anchor="middle">沿 KV 维度切块</text>
+  <rect class="n vio" x="320" y="164" width="250" height="64" rx="8"/><text class="t" x="445" y="190" text-anchor="middle">softmax → online softmax</text><text class="ts" x="445" y="211" text-anchor="middle">运行最大值 m、和 l、块间重缩放</text>
+  <rect class="n ok" x="620" y="164" width="250" height="64" rx="8"/><text class="t" x="745" y="190" text-anchor="middle">融合成一个 kernel</text><text class="ts" x="745" y="211" text-anchor="middle">S、P 只在片上，不落 HBM</text>
+  <path class="e" d="M270,196 L318,196" marker-end="url(#ah)"/>
+  <path class="e" d="M570,196 L618,196" marker-end="url(#ah)"/>
+  <text class="tl" x="20" y="256">实测把它挑出来：S 不再写回 HBM，内存流量从 O(N²) 降到 O(N·d)</text>
+</svg>
+</div>
+<figcaption><b>图 7</b> 根据作者描述画的路径。关键是 online softmax 这条代数等价（你在 T5 / L3 / F2 里亲手写过的 m、l 重缩放，以及 merge_state）一旦作为规则进入 e-graph，“分块 + 融合”就成了一个可以被提取的候选。</figcaption>
+</figure>
+<div class="note"><b>需要区分的地方</b>：这个演示来自 2025 年的旧管线。当前 main 分支自己的测量报告写明 “no FlashInfer/fused attention operation is available”：attention 的 QKᵀ 和 AV 走通用 kernel，而且当前的矩阵乘识别规则只认 rank-2，GQA 的批量高阶乘积匹配不上，搜索再久也找不到（<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/benchmark-128-2026-09-21/SEARCH_DIAGNOSIS.md">SEARCH_DIAGNOSIS.md</a>）。另外，有第三方总结指出这个演示没有公开搜索预算和可复现的计时对比。</div>
+<p>这也揭示了这条路线的一个本质约束：<b>搜索只能找到规则能到达的写法</b>。SEARCH_DIAGNOSIS 原话：“Increasing generations/population explores combinations of existing producers; it does not extend the rewrite vocabulary.” 所以能力上限取决于规则库，而“该写哪些规则”本身仍然需要人的洞察。HN 讨论中也有人指出，等价保持的搜索很难找到 Strassen 这类“换算法”的优化。</p>
+
+<!-- ============ 10 hard ============ -->
+<h2 id="hard"><span class="no">10</span>难点与解法总表</h2>
+<div class="tbl"><table>
+<thead><tr><th>难点</th><th>为什么难</th><th>Luminal 的做法</th><th>源码 / 证据</th></tr></thead>
+<tbody>
+<tr><td><b>e-graph 爆炸</b></td><td>规则越多，等价类和节点越多；有的规则（如结合律、交换律）会无限生成新项</td><td>规则全部放进命名 ruleset，并按阶段调度；整数代数有一整套“fence doctrine”控制哪些模式能命名哪些项，目的是让规则代价可控；旧 spec 里还有 loop rolling，把重复的层压成一个循环体再饱和</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/spec.md">spec.md · Rule conventions</a> · <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/egglog_core/egglog_preamble.egg">preamble 的 DOCTRINE 注释</a></td></tr>
+<tr><td><b>代价不可加</b></td><td>kernel 的快慢取决于前后布局、融合与内存，传统的逐节点代价提取不准</td><td>不建模：genome 采样 + 遗传算法 + GPU 实测；相关采样提高抽到连贯候选的概率</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L443">sample_genome_correlated</a></td></tr>
+<tr><td><b>每个候选都必须正确</b></td><td>搜索会挑出任何一个可提取的图，只要有一条规则在某个边角形状、dtype 或动态维度下不成立，就会出错</td><td>规则是“带前提的等价”：除法需要值域证明除数非零，整数有回绕规则，布局要证明单射；禁止在 Rust 里对提取后的图做后处理；CPU <code>ReferenceRuntime</code> 作为语义标准，PyTorch 对拍测试套件</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/AGENTS.md">AGENTS.md</a> · <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_reference/src/runtime.rs">reference runtime</a></td></tr>
+<tr><td><b>库调用的合法性</b></td><td>cuBLASLt 参数组合多，每种在什么布局 / 精度下合法很微妙</td><td>识别 → 布局证明 → 精度证明 → 白名单准入，分层证明，2,176 条配置</td><td><a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/cublaslt/egg">cublaslt/egg/</a></td></tr>
+<tr><td><b>布局与视图</b></td><td>转置、切片、广播要零拷贝，又要让 kernel 拿到它能用的布局</td><td>逻辑值与布局分离；布局阶梯自动发现；视图与实体化拷贝都是候选，由搜索决定</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/layout/layouts.rs">layouts.rs</a></td></tr>
+<tr><td><b>显存</b></td><td>有些候选的中间结果在长上下文下会超出显存</td><td>搜索前按完整动态范围剪掉不可能的实体化；候选 arena 分配前再检查一次</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/egraph_postpass.rs">egraph_postpass.rs</a></td></tr>
+<tr><td><b>动态形状</b></td><td>静态编译与运行时变化的 batch / seq 长度矛盾</td><td>符号维度 + 分桶，每个 bucket 单独搜索，运行时按 <code>dyn_map</code> 分发</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/bucketing.rs">bucketing.rs</a></td></tr>
+<tr><td><b>搜索很贵</b></td><td>每个候选都要编译 + 分配 + 预热 + 计时；作者在 HN 上说典型是 10 分钟到 10 小时</td><td>NVRTC 模块缓存（编译时间不计入候选超时）、早停、保留后备；作者提到计划用 MCTS / RL 和按后端记忆化</td><td><a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/search-timing-2026-09-21/RESULTS.md">search-timing RESULTS</a></td></tr>
+</tbody></table></div>
+
+<!-- ============ 11 status ============ -->
+<h2 id="status"><span class="no">11</span>现状：仓库自带的实测数字</h2>
+<p>以下数据来自仓库中的验证报告（2026-09-21，NVIDIA H200，batch 1，<b>FP32</b>，128 输入 / 128 输出 token，3 次热请求取中位数）：</p>
+<div class="tbl"><table>
+<thead><tr><th>模型</th><th class="num">TTFT (ms)</th><th class="num">TPOT (ms/token)</th><th class="num">编译搜索 (s)</th><th class="num">cuBLASLt 实例</th><th class="num">通用 attention 乘积</th></tr></thead>
+<tbody>
+<tr><td>Qwen3-0.6B</td><td class="num">842.97</td><td class="num">41.84</td><td class="num">163.16</td><td class="num">194</td><td class="num">56</td></tr>
+<tr><td>Qwen3-4B</td><td class="num">3,524.11</td><td class="num">144.41</td><td class="num">189.69</td><td class="num">254</td><td class="num">72</td></tr>
+<tr><td>Llama3-8B-Instruct</td><td class="num">5,847.96</td><td class="num">221.26</td><td class="num">252.83</td><td class="num">229</td><td class="num">64</td></tr>
+<tr><td>Gemma3-4B-IT（文本）</td><td class="num">4,095.09</td><td class="num">167.18</td><td class="num">377.13</td><td class="num">212</td><td class="num">68</td></tr>
+</tbody></table></div>
+<p>估算一下差距：Llama3-8B 的 FP32 权重约 8.03 B × 4 B ≈ 32 GB，H200 的 HBM 带宽约 4.8 TB/s，所以 decode 每 token 的带宽下限约 <b>6.7 ms</b>。实测 221 ms，约为下限的 33 倍，带宽利用率约 3%。这是我的粗略估算，不是仓库给出的数字，也忽略了 KV cache 读取，但量级足以说明：新管线目前关注的是正确性和架构，性能还没跟上。</p>
+<p>搜索本身也很贵。仓库的一次计时分析里，Llama3-8B 的搜索用了 347 s，其中 <b>60.5%</b> 花在 pinned 主机内存的分配、清零和释放上，并不是在 GPU 上计时。下面是其中一个候选的耗时分解（按比例绘制）：</p>
+<figure>
+<div class="scroll">
+<svg viewBox="0 0 820 128" role="img" aria-label="单个候选 35.2 秒的耗时分解">
+  <rect x="30" y="40" width="6" height="34" style="fill:var(--accent)"/>
+  <rect x="36" y="40" width="367.7" height="34" style="fill:var(--warn)"/>
+  <rect x="403.7" y="40" width="62.3" height="34" style="fill:var(--vio)"/>
+  <rect x="466" y="40" width="185.6" height="34" style="fill:var(--ok)"/>
+  <rect x="651.6" y="40" width="137.7" height="34" style="fill:var(--edge)"/>
+  <text class="tl" x="30" y="30">提取 + 规划 0.28 s</text>
+  <text class="t" x="219.8" y="62" text-anchor="middle" style="fill:var(--paper)">准备 17.05 s</text>
+  <text class="tl" x="219.8" y="94" text-anchor="middle">其中 pinned 分配 / 清零 ≈ 16.9 s</text>
+  <text class="tl" x="434.8" y="94" text-anchor="middle">预热 2.89</text>
+  <text class="t" x="558.8" y="62" text-anchor="middle" style="fill:var(--paper)">计时 ×3</text>
+  <text class="tl" x="558.8" y="94" text-anchor="middle">8.61 s</text>
+  <text class="tl" x="720.4" y="94" text-anchor="middle">释放 6.39</text>
+  <text class="tl" x="790" y="30" text-anchor="end">合计 35.24 s</text>
+  <line x1="30" y1="110" x2="790" y2="110" style="stroke:var(--line)"/>
+  <text class="tl" x="30" y="124">0 s</text><text class="tl" x="790" y="124" text-anchor="end">35.2 s</text>
+</svg>
+</div>
+<figcaption><b>图 8</b> Llama3-8B 搜索中候选 2.1 的耗时（search-timing RESULTS.md）。真正“测速”的 3 次计时只占约 1/4，大头是准备和释放这些工程开销。这是可以优化的部分，不是方法本身的上限。</figcaption>
+</figure>
+<p>正确性方面比较扎实：Metal 报告里，Llama3 / Qwen3 / Gemma3 / Qwen3-MoE 的小型实例与 <code>ReferenceRuntime</code> 的 logits 误差都小于 1e-4；CUDA 上四个模型 128 个 token 输出前后一致。README 中 “Q8 Llama 3 8B ~80% of theoretical max on H100”，以及 HN 帖子中 “M 系列 Mac 上 Q8 Llama 3 8B 15–25 tok/s”，对应的是旧管线（作者在 HN 上也承认当时还比不上 llama.cpp 这类手调实现）。</p>
+<div class="src">
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/profiled-128-2026-09-21/RESULTS.md">profiled-128 RESULTS.md</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/search-timing-2026-09-21/RESULTS.md">search-timing RESULTS.md</a>
+<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/METAL_RESULTS.md">METAL_RESULTS.md</a>
+<a href="https://github.com/luminal-ai/luminal/tree/f33f326408710c77ffd543347a59876ec8e0c476/crates/luminal_cuda_lite/src/kernel/fusion">旧管线 fusion/（tag yolo-v11n）</a>
+</div>
+
+<!-- ============ 12 compare ============ -->
+<h2 id="compare"><span class="no">12</span>与其他编译器 / 系统对比</h2>
+<div class="tbl"><table>
+<thead><tr><th>系统</th><th>表示</th><th>怎么选实现</th><th>和 Luminal 的关系</th></tr></thead>
+<tbody>
+<tr><td>XLA / torch.compile (Inductor)</td><td>HLO / FX 图，破坏式 pass</td><td>启发式规则；Inductor 生成 Triton，再对 Triton 配置做自动调优</td><td>Luminal 直接批评的对象：规则必须确定有收益才触发</td></tr>
+<tr><td>TVM / Ansor</td><td>Tensor Expression + schedule</td><td>代价模型 + 进化搜索，只针对单个算子的调度</td><td>作者说 Luminal 是“autotuning on steroids”：搜索的是整图的等价结构，不只是单个 kernel 的参数</td></tr>
+<tr><td>TASO / Tensat</td><td>计算图替换；Tensat 用 e-graph</td><td>代价模型 + ILP 提取</td><td>最接近的学术前身；Luminal 用实测代替代价模型，把重写下沉到布局和 kernel 层</td></tr>
+<tr><td>Mirage（OSDI ’25）</td><td>多层 μGraph（kernel / block / thread）</td><td>穷举超优化 + 概率等价验证</td><td>同属“搜索出融合 kernel”；Mirage 搜子图结构，Luminal 靠重写规则生成空间</td></tr>
+<tr><td>tinygrad</td><td>极小原语集（UOps）</td><td>BEAM 搜索 kernel 优化参数</td><td>README 点名同路人：小原语集、懒执行；tinygrad 没有 e-graph</td></tr>
+<tr><td>FlashInfer / cuBLAS / CUTLASS</td><td>手写 / 模板 kernel 库</td><td>人工 + 运行时 plan/选择</td><td>在 Luminal 里是搜索空间中的候选 e-node，而不是对手</td></tr>
+</tbody></table></div>
+
+<!-- ============ 13 take ============ -->
+<h2 id="take"><span class="no">13</span>评价与借鉴</h2>
+<div class="verdict">
+  <div class="plus"><h4>做得好的</h4><ul>
+    <li>问题拆分非常干净：规则只管“对不对”，搜索只管“快不快”</li>
+    <li>正确性纪律严格：带前提的等价、禁止后处理、参考实现对拍</li>
+    <li>厂商库作为候选，和生成的代码公平竞争</li>
+    <li>大量设计决策写在源码注释和验证报告里，连负面结果也记录</li>
+  </ul></div>
+  <div class="minus"><h4>风险与局限</h4><ul>
+    <li>能力上限由规则库决定；attention / RoPE 的高阶乘积目前匹配不上</li>
+    <li>当前分支性能远低于带宽上限，FP32 为主</li>
+    <li>搜索时间以分钟到小时计，不适合频繁换形状、换模型的场景</li>
+    <li>egglog 规则体系门槛高，注释里大量内部决议，外部贡献者不容易进入</li>
+  </ul></div>
+  <div class="learn"><h4>对你有用的</h4><ul>
+    <li>把 online softmax / merge_state 写成“代数等价”的视角，可以用来讲解 FlashAttention</li>
+    <li>布局阶梯 + 单射证明，和 CuTe layout algebra 相通</li>
+    <li>“库调用准入证明”的分层思路，可以借鉴到 FlashInfer 的 API 选择和测试</li>
+    <li>面试中谈编译器 vs 手写 kernel 时，这是一个很好的反方案例</li>
+  </ul></div>
+</div>
+<div class="analogy"><div class="lbl">类比 · 地图和导航</div>
+<p>手写 kernel 库是老司机记在脑子里的近路：快，但每个城市都要重新学。Luminal 想做的是导航软件：把所有合法道路都画进地图（e-graph），再实时测路况选最快路线（实测搜索）。导航能有多好，取决于地图画全了没有（规则库）和测路况花多少时间（搜索成本）。目前它的地图还缺几条高速公路（融合 attention），测路况也偏慢。</p></div>
+
+<!-- ============ 14 read ============ -->
+<h2 id="read"><span class="no">14</span>源码阅读路线（约 3 小时）</h2>
+<ol>
+  <li><b>想法</b>（20 分钟）：<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/README.md">README</a> → <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/spec.md">spec.md</a>（注意它已过时，但契约部分仍然成立）→ <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/AGENTS.md">AGENTS.md</a> 的 Debugging 和 Rewrite Boundary 两节。</li>
+  <li><b>一个算子的完整生命周期</b>（40 分钟）：<a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/op/add">logical/op/add/</a> 的 10 个 <code>.egg</code> 文件 → CUDA 侧 <a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/add">cuda_lite/ops/add/</a> → <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/kernels.rs#L479">KernelOp</a> 怎么生成源码。</li>
+  <li><b>模式识别</b>（20 分钟）：<a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/logical/helper/matrix_multiply">matrix_multiply/</a> 的识别与展开 → <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/ops/cublaslt/README.md">cublaslt/README.md</a>。</li>
+  <li><b>提取与搜索</b>（40 分钟）：<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/extraction.rs#L555">Genome</a> → <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L420">sample_genome</a> / <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/search_support.rs#L629">mutate_genome</a> → <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/src/search.rs#L355">search_implementations</a>。</li>
+  <li><b>内存</b>（30 分钟）：<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/src/buffer/bufferize.rs">bufferize.rs</a> 文件头的长注释（冲突引擎讲得很清楚）。</li>
+  <li><b>诚实的现状</b>（20 分钟）：<a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/examples/llm_chat/validation/benchmark-128-2026-09-21/SEARCH_DIAGNOSIS.md">SEARCH_DIAGNOSIS.md</a> 和 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/crates/luminal_cuda_lite/BRINGUP.md">BRINGUP.md</a>。</li>
+  <li><b>动手</b>：<code>cargo test -p luminal --lib</code>（不需要 GPU）；在 5090 上可以试 <code>cargo run --release -p luminal_cuda_lite --example llama3 --features device</code>，加 <code>LUMINAL_LOG=1</code> 看搜索过程，加 <code>LLIR_DUMP_DIR=…</code> 导出选中的计划。</li>
+</ol>
+
+<footer id="refs">
+<b>资料来源</b>
+<ol>
+  <li>源码：<a href="https://github.com/luminal-ai/luminal/tree/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1">luminal-ai/luminal @ 1cbb917</a>（2026-10-29）。本文所有源码链接都固定在这个提交。</li>
+  <li>旧管线快照：<a href="https://github.com/luminal-ai/luminal/tree/f33f326408710c77ffd543347a59876ec8e0c476">tag yolo-v11n @ f33f326</a>（2026-05）。</li>
+  <li><a href="https://hn.svelte.dev/item/44963135">Show HN: Luminal – Open-source, search-based GPU compiler</a>（作者的机制描述、搜索时间、与 llama.cpp 的比较）。</li>
+  <li><a href="https://aiwiki.ai/wiki/luminal">aiwiki.ai: Luminal</a>（对 FlashAttention 演示缺少可复现计时的评论）。</li>
+  <li><a href="https://deepwiki.com/luminal-ai/luminal">DeepWiki: luminal-ai/luminal</a>。</li>
+  <li><a href="https://docs.luminalai.com">Luminal 官方文档</a> · 仓库内 <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/blog/gpu.mdx">blog/gpu.mdx</a> · <a href="https://github.com/luminal-ai/luminal/blob/1cbb9173dc53482bb6d87463aea2f1cfd94a1cf1/docs/docs/why.mdx">why.mdx</a>。</li>
+  <li>e-graph 背景：<a href="https://arxiv.org/abs/2004.03082">egg (POPL 2021)</a> · <a href="https://arxiv.org/abs/2304.04332">egglog (PLDI 2023)</a> · <a href="https://arxiv.org/abs/2101.01332">Tensat (MLSys 2021)</a>。</li>
+</ol>
+<p>带宽利用率是本文根据公开参数做的粗略估算；其余数字都来自上面列出的仓库报告。</p>
+</footer>
+</main>
+</div>
+
+<script>
+(function(){
+  var G = {
+    g1:{nodes:["en1","enp","ena","enb"],edges:["ep1","ep2","ep3","ep4","ep5"],
+        note:"genome A：out 选 ReduceSum，prod 选 Mul，再选两个 Broadcast。提取结果是“广播 → 逐元素乘 → 求和”的通用 kernel 链（可能会被融合），一定能跑，但通常最慢。"},
+    g2:{nodes:["en2"],edges:["ep6"],
+        note:"genome B：out 选 MatMul 辅助节点。它本身不能执行，作用是让后端规则只匹配一个节点；在真实 e-graph 里，它所在的类还会被合并进具体的后端实现。"},
+    g3:{nodes:["en3"],edges:["ep7"],
+        note:"genome C：out 选 CublasLt。前提是布局、精度和白名单准入都已证明。prod 和 Broadcast 这些类不会被提取，S = a·bᵀ 由库一次算完。如果它要求的布局与上下游不一致，搜索可能会配上一次 layout copy，最后用实测决定值不值。"}
+  };
+  var all = ["en1","en2","en3","enp","ena","enb"], alle = ["ep1","ep2","ep3","ep4","ep5","ep6","ep7"];
+  function show(id){
+    all.forEach(function(n){var el=document.getElementById(n); if(el) el.classList.remove("pick");});
+    alle.forEach(function(e){var el=document.getElementById(e); if(el){el.classList.remove("pick"); el.setAttribute("marker-end","url(#ah)");}});
+    G[id].nodes.forEach(function(n){document.getElementById(n).classList.add("pick");});
+    G[id].edges.forEach(function(e){var el=document.getElementById(e); el.classList.add("pick"); el.setAttribute("marker-end","url(#ahp)");});
+    ["g1","g2","g3"].forEach(function(b){document.getElementById(b).setAttribute("aria-pressed", b===id?"true":"false");});
+    document.getElementById("gnote").textContent = G[id].note;
+  }
+  ["g1","g2","g3"].forEach(function(b){document.getElementById(b).addEventListener("click",function(){show(b);});});
+  show("g1");
+})();
+</script>

@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RSSHub + Folo 源码导读</title>
+<style>
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --warn: #b7791f; --warn-soft: #fbf0dc; --ok: #2e8b57; --ok-soft: #e4f3ea; --bad: #c0392b; --bad-soft: #fbe5e2;
+  --vio: #7a4fc4; --vio-soft: #efe8fb;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --sidebar: 270px; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --warn: #e6b25c; --warn-soft: #3a2f1b; --ok: #5cc98b; --ok-soft: #1d3327;
+  --bad: #f08070; --bad-soft: #3d2320; --vio: #b79cf0; --vio-soft: #2c2440; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --warn: #e6b25c; --warn-soft: #3a2f1b; --ok: #5cc98b; --ok-soft: #1d3327;
+  --bad: #f08070; --bad-soft: #3d2320; --vio: #b79cf0; --vio-soft: #2c2440; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark; }
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.layout { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); }
+.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; border-right: 1px solid var(--border);
+  padding: 18px 10px 40px 16px; font-size: 13.2px; scrollbar-width: thin; }
+.sidebar .brand { font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 8px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur { background: var(--accent-soft); color: var(--accent); }
+main { max-width: 920px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 34px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 34px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover p { color: var(--muted); margin: 6px 0; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+h2 { font-size: 25px; margin: 64px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 36px 0 8px; }
+h4 { font-size: 16px; margin: 24px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; white-space: normal; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 6.2em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.note { border-left-color: var(--muted); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+@media (max-width: 900px) {
+  .layout { display: block; } .sidebar { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 27px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .theme-btn, .flow-hint { display: none !important; }
+  .layout { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  figure.flow, .callout, pre, table { break-inside: avoid; }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+/* ---------- React-Flow-style diagrams ---------- */
+
+:root { --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57; --f-pass-bg: #e4f3ea;
+  --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4; --f-todo: #c0392b; --f-todo-bg: #fbe5e2; --f-hl: #ffb020; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b;
+  --f-pass: #5cc98b; --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238; --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] { --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b;
+  --f-pass: #5cc98b; --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238; --f-todo: #f08070; --f-todo-bg: #3d2320; }
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .15s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); }
+.f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl) { opacity: .4; }
+svg .f-node.hl rect.f-box { stroke-width: 2.4; }
+.callout.analogy { border-left: 4px solid #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar" aria-label="目录"><div class="brand">RSSHub + Folo 导读</div>
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：RSS 生态的问题与两个项目的分工</a>
+<a class="nav-l3" href="#s2-1">RSS 本来要解决什么，现在又卡在哪里</a>
+<a class="nav-l3" href="#s2-2">两个项目的“要求、目标、限制”</a>
+<a class="nav-l2" href="#s3">RSSHub：把任何网站变成 feed</a>
+<a class="nav-l3" href="#s3-1">一个请求的完整路径</a>
+<a class="nav-l3" href="#s3-2">路由系统：文件即路由，构建期生成路由表</a>
+<a class="nav-l3" href="#s3-3">路由的数据契约：Route、Data、DataItem</a>
+<a class="nav-l3" href="#s3-4">抓取：列表页 + 详情页 + 缓存</a>
+<a class="nav-l3" href="#s3-5">缓存：两级缓存 + 防击穿</a>
+<a class="nav-l3" href="#s3-6">Radar：从“我在看的网页”反推订阅地址</a>
+<a class="nav-l3" href="#s3-7">部署形态与关键配置</a>
+<a class="nav-l3" href="#s3-8">和 Folo 的专属接口</a>
+<a class="nav-l2" href="#s4">Folo：一个多端的 AI RSS 阅读器</a>
+<a class="nav-l3" href="#s4-1">Monorepo 地图</a>
+<a class="nav-l3" href="#s4-2">最关键的限制：后端不在仓库里</a>
+<a class="nav-l3" href="#s4-3">离线优先的数据层</a>
+<a class="nav-l3" href="#s4-4">Sync Engine：模仿 Linear 的增量同步</a>
+<a class="nav-l3" href="#s4-5">一条时间线是怎么显示出来的</a>
+<a class="nav-l3" href="#s4-6">Electron：主进程、渲染进程与 IPC</a>
+<a class="nav-l3" href="#s4-7">AI 功能是怎么接上的</a>
+<a class="nav-l3" href="#s4-8">其他端：移动端、CLI、分享页</a>
+<a class="nav-l2" href="#s5">端到端：一条 rsshub:// 订阅的旅程</a>
+<a class="nav-l2" href="#s6">开源许可证：你能做什么、必须做什么</a>
+<a class="nav-l3" href="#s6-1">两个项目的许可证</a>
+<a class="nav-l3" href="#s6-2">AGPL-3.0 的核心规则</a>
+<a class="nav-l3" href="#s6-3">常见场景对照</a>
+<a class="nav-l2" href="#s7">贡献与定制</a>
+<a class="nav-l3" href="#s7-1">给 RSSHub 贡献一条路由</a>
+<a class="nav-l3" href="#s7-2">给 Folo 贡献</a>
+<a class="nav-l3" href="#s7-3">打造“自己喜欢的阅读器”：三条路线</a>
+<a class="nav-l2" href="#s8">附录：源码索引</a>
+<a class="nav-l3" href="#s8-1">RSSHub</a>
+<a class="nav-l3" href="#s8-2">Folo</a>
+</nav>
+<main>
+<header class="cover">
+  <div class="kicker">Source-level guide · RSSHub × Folo</div>
+  <h1>RSSHub + Folo：从原理到源码</h1>
+  <p>一份为“自己动手 contribute / 定制 RSS 阅读器”准备的导读：两个项目各自要解决什么问题、有哪些限制、架构如何拆分、组件之间怎样连接，以及开源许可证对你意味着什么。</p>
+  <p class="meta">RSSHub @ 8f4fd43 · Folo @ 158ecbe · 所有源码链接都固定在这两个 commit 上 · 2026-11</p>
+</header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读给想做三件事的人：<strong>读懂</strong> RSSHub 和 Folo 的工作原理；<strong>给它们提 PR</strong>；<strong>在它们之上定制出自己喜欢的 RSS 阅读器</strong>。</p>
+<p>全文按这个顺序展开：</p>
+<ol>
+<li><strong>全景</strong>：RSS 生态本来有什么问题，两个项目各自解决哪一段，它们之间靠什么连起来。</li>
+<li><strong>RSSHub</strong>：一个请求从进入到吐出 RSS 的完整路径，路由、缓存、抓取、输出、部署。</li>
+<li><strong>Folo</strong>：monorepo 的结构、离线优先的数据层、同步引擎、Electron 架构、AI 功能。</li>
+<li><strong>端到端</strong>：把 <code>rsshub://hackernews</code> 从“订阅”到“显示在时间线上”串一遍。</li>
+<li><strong>开源许可证</strong>：AGPL-3.0 对“自己用、提 PR、发 fork、发安装包、对外提供服务”分别意味着什么。</li>
+<li><strong>贡献与定制</strong>：开发环境、提交规范、适合入手的方向，以及“打造自己的阅读器”的三条路线。</li>
+</ol>
+<p>每张图都是可交互的 React Flow 风格节点图：在 HTML 里把鼠标悬停在节点上，会高亮它的所有连接。正文里蓝底的链接都指向 GitHub 上<strong>固定 commit</strong> 的源码行，所以即使上游继续改动，链接也不会漂移。</p>
+
+<div class="callout key"><div class="callout-title">要点 · 两个版本</div><ul>
+<li>RSSHub：<code>DIYgod/RSSHub</code> @ <code>8f4fd43</code>（2026-11-05）</li>
+<li>Folo：<code>RSSNext/Folo</code> @ <code>158ecbe</code></li>
+</ul>
+</div>
+<h2 id="s2">全景：RSS 生态的问题与两个项目的分工</h2>
+<h3 id="s2-1">RSS 本来要解决什么，现在又卡在哪里</h3>
+<p>RSS/Atom 的设想很简单：网站发布一份机器可读的“更新列表”，阅读器定时拉取，用户在一个地方看所有来源的更新，不依赖算法推荐、不需要逐个打开网站。</p>
+<p>现实中它卡在三处：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>谁来解决</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>来源</strong></td>
+<td>大量网站（社交媒体、视频站、论坛、政府网站、App 内容）根本不提供 RSS，或者只提供残缺的摘要</td>
+<td><strong>RSSHub</strong>：为每个网站写一个“路由”，把网页 / API 转成标准 feed</td>
+</tr>
+<tr>
+<td><strong>抓取与同步</strong></td>
+<td>每个阅读器都要自己定时抓取成千上万个 feed，还要在多设备之间同步“已读、收藏、分类”</td>
+<td><strong>Folo 后端</strong>（闭源服务，<code>api.folo.is</code>）：集中抓取、去重、存储，并把用户状态同步到所有客户端</td>
+</tr>
+<tr>
+<td><strong>阅读体验</strong></td>
+<td>传统阅读器把所有内容都当成“文章列表”，看图片、视频、播客、社交动态都很别扭；信息太多读不完</td>
+<td><strong>Folo 客户端</strong>（开源）：按内容类型分成 6 种视图，加上 AI 摘要、翻译、排序和对话</td>
+</tr>
+</tbody>
+</table></div>
+
+<figure class="flow"><div class="flow-head">全景：数据从网站流到你的屏幕<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;全景：数据从网站流到你的屏幕&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;site&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;没有 RSS 的网站&quot;, &quot;s&quot;: &quot;HTML / 私有 API&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;radar&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;RSSHub Radar&quot;, &quot;s&quot;: &quot;浏览器扩展 / 规则&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;feed&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;有 RSS 的网站&quot;, &quot;s&quot;: &quot;博客 / 新闻 / 播客&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rh&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;RSSHub 实例&quot;, &quot;s&quot;: &quot;路由 → RSS/Atom/JSON&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;srv&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Folo 后端&quot;, &quot;s&quot;: &quot;api.folo.is · 闭源&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;desk&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;桌面 / Web 客户端&quot;, &quot;s&quot;: &quot;Electron + React&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mob&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;移动客户端&quot;, &quot;s&quot;: &quot;Expo / React Native&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cli&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;folocli&quot;, &quot;s&quot;: &quot;命令行 / AI agent&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;site&quot;, &quot;b&quot;: &quot;rh&quot;, &quot;t&quot;: &quot;抓取&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;radar:r&quot;, &quot;b&quot;: &quot;rh:b&quot;, &quot;t&quot;: &quot;推荐路由&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;rh:r&quot;, &quot;b&quot;: &quot;srv:t&quot;, &quot;t&quot;: &quot;feed&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;feed:r&quot;, &quot;b&quot;: &quot;srv:b&quot;, &quot;t&quot;: &quot;直接拉取&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;srv&quot;, &quot;b&quot;: &quot;desk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;srv&quot;, &quot;b&quot;: &quot;mob&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;srv&quot;, &quot;b&quot;: &quot;cli&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 160.0}}"></div><figcaption>蓝色是开源的 RSSHub，紫色是开源的 Folo 客户端；黑色的 Folo 后端不在公开仓库里，客户端通过 HTTP API 和它通信。</figcaption></figure>
+<h3 id="s2-2">两个项目的“要求、目标、限制”</h3>
+<p>理解一个系统最快的方法，是先弄清它在什么约束下做取舍。下面这张表是整篇导读的骨架，后面每一节都在回答“它是怎么在这些限制下做到的”。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>RSSHub</th>
+<th>Folo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>“万物皆可 RSS”：任何网站都能用一个 URL 订阅</td>
+<td>一个现代的、AI 加持的 RSS 阅读器，多端一致</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>几千条路由，每条把一个网站转成标准 feed；支持过滤、全文、多种输出格式</td>
+<td>订阅任意 RSS / Atom / JSON feed 和 RSSHub 路由；6 种内容视图；多设备同步；离线可读；AI</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>2000 个命名空间、上万条路由，由几千名社区贡献者维护；一个热门实例每天被阅读器反复请求</td>
+<td>用户的时间线可能有上万条未读；首屏要快；手机、电脑、Web 都要能用</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>目标网站随时改版、反爬、限流、需要登录；抓取慢（可能要开浏览器）</td>
+<td>依赖自家后端；Electron / Web / iOS / Android 四种运行时的差异；App Store 规则</td>
+</tr>
+<tr>
+<td><strong>关键解决手段</strong></td>
+<td>文件即路由 + 构建期生成路由表 + 懒加载；两级缓存 + 防击穿锁；统一的数据契约</td>
+<td>共享的 <code>packages/internal</code> 业务层；SQLite 本地库 + 内存 store；Linear 式增量同步；按视图分模板</td>
+</tr>
+<tr>
+<td><strong>开源许可证</strong></td>
+<td>AGPL-3.0</td>
+<td>AGPL-3.0-only（附加一条图标例外）</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout analogy"><div class="callout-title">类比 · 翻译社与报刊亭</div><p>RSSHub 像一家“翻译社”：每个网站说自己的方言，RSSHub 为每种方言雇一个译员（路由），全部翻译成标准普通话（RSS）。Folo 像一家“报刊亭 + 私人助理”：后端负责每天去各家报社取报纸，客户端负责把报纸、画报、录音带分类摆好，并且可以替你先读一遍、划重点。</p>
+</div>
+<h2 id="s3">RSSHub：把任何网站变成 feed</h2>
+<h3 id="s3-1">一个请求的完整路径</h3>
+<p>RSSHub 是一个 <a href="https://hono.dev">Hono</a> Web 服务。启动入口 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/index.ts#L54">lib/index.ts</a> 用 <code>@hono/node-server</code> 监听端口（默认 1200，见 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/config.ts#L841">config.ts</a>），可选 cluster 多进程。真正的应用组装在 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/app-bootstrap.tsx#L37-L53">lib/app-bootstrap.tsx</a>：一串中间件，最后挂上路由表。</p>
+<p>Hono 的中间件是“洋葱模型”：每个中间件先做“进去时”的事，调用 <code>await next()</code> 进入下一层，等内层返回后再做“出来时”的事。RSSHub 巧妙地利用了这一点：<strong>路由 handler 只返回一个 JS 对象（<code>Data</code>），过滤、改写、渲染成 XML 全部发生在“出来的路上”。</strong></p>
+
+<figure class="flow"><div class="flow-head">洋葱模型：进去时检查，出来时加工<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;洋葱模型：进去时检查，出来时加工&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;req&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;HTTP 请求&quot;, &quot;s&quot;: &quot;GET /hackernews/best&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;log&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;logger · trace&quot;, &quot;s&quot;: &quot;sentry · 日志/追踪&quot;, &quot;k&quot;: &quot;&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;acl&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;accessControl&quot;, &quot;s&quot;: &quot;ACCESS_KEY 校验&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tpl&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;template&quot;, &quot;s&quot;: &quot;出：渲染 RSS/Atom&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;par&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;parameter&quot;, &quot;s&quot;: &quot;出：filter / limit&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cache&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;cache&quot;, &quot;s&quot;: &quot;命中则跳过 handler&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;registry&quot;, &quot;s&quot;: &quot;按路径找到路由&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;route handler&quot;, &quot;s&quot;: &quot;抓取 → 返回 Data&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;data&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ctx.set(&#x27;data&#x27;)&quot;, &quot;s&quot;: &quot;纯 JS 对象&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;req&quot;, &quot;b&quot;: &quot;log&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;log&quot;, &quot;b&quot;: &quot;acl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;acl&quot;, &quot;b&quot;: &quot;tpl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tpl&quot;, &quot;b&quot;: &quot;par&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;par&quot;, &quot;b&quot;: &quot;cache&quot;, &quot;t&quot;: &quot;next()&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cache&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;未命中&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;懒加载&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;data&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 178.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 150.0}}"></div><figcaption>上排是“进去时”的顺序；handler 写入 <code>ctx.data</code> 后，控制权按相反顺序回到 cache（写缓存）→ parameter（过滤）→ antiHotlink（改写图片）→ template（序列化）。中间件注册顺序见 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/app-bootstrap.tsx#L37-L53">app-bootstrap.tsx</a>。</figcaption></figure>
+<p>几个值得记住的细节：</p>
+<ul>
+<li><strong>handler 不碰输出格式。</strong> <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/template.tsx#L15">template.tsx</a> 在 <code>await next()</code> 之后读取 <code>ctx.get('data')</code>，再根据 <code>?format=</code> 选择输出（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/template.tsx#L121-L129">rss / atom / json / rss3</a>）。所以你写路由时只需要关心“这个网站有哪些条目”，同一条路由自动支持所有格式。</li>
+<li><strong>过滤是通用能力。</strong> <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/parameter.ts#L68">parameter.ts</a> 同样在 <code>next()</code> 之后工作：<code>?filter=</code> 正则过滤（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/parameter.ts#L239">L239</a>）、<code>?filterout=</code>、<code>?limit=</code>、<code>?mode=fulltext</code> 全文抽取、<code>?opencc=</code> 简繁转换、<code>?brief=</code> 截断等。这些参数对所有几千条路由都生效，路由作者不用自己实现。</li>
+<li><strong>错误也是统一的。</strong> handler 抛出的 <code>InvalidParameterError</code> 等错误由 <code>app.onError</code> 统一渲染（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/app-bootstrap.tsx#L52-L53">L52</a>）。</li>
+</ul>
+
+<figure class="flow"><div class="flow-head">同一份 Data，多种输出<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;同一份 Data，多种输出&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;data&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;handler 返回 Data&quot;, &quot;s&quot;: &quot;title / link / item[]&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;par&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;parameter&quot;, &quot;s&quot;: &quot;filter · limit · mode…&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tpl&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;template&quot;, &quot;s&quot;: &quot;?format=&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rss&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;RSS 2.0&quot;, &quot;s&quot;: &quot;默认&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;atom&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Atom&quot;, &quot;s&quot;: &quot;format=atom&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;json&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;JSON Feed&quot;, &quot;s&quot;: &quot;format=json&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rss3&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;RSS3&quot;, &quot;s&quot;: &quot;format=rss3&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;data&quot;, &quot;b&quot;: &quot;par&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;par&quot;, &quot;b&quot;: &quot;tpl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tpl&quot;, &quot;b&quot;: &quot;rss&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tpl&quot;, &quot;b&quot;: &quot;atom&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tpl&quot;, &quot;b&quot;: &quot;json&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tpl:t&quot;, &quot;b&quot;: &quot;rss3:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 74.0, &quot;nw&quot;: 160.0}}"></div><figcaption>例：<code>/hackernews/best?filter=AI|GPU&amp;limit=10&amp;format=atom</code>，路由代码完全不用管这些参数。渲染组件在 <a class="src" href="https://github.com/DIYgod/RSSHub/tree/8f4fd435601c7f5048ce65284405f276f70fb918/lib/views">lib/views/</a>。</figcaption></figure>
+<h3 id="s3-2">路由系统：文件即路由，构建期生成路由表</h3>
+<p>RSSHub 的路由按<strong>命名空间</strong>组织：每个网站一个目录 <a class="src" href="https://github.com/DIYgod/RSSHub/tree/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes">lib/routes/&lt;namespace&gt;/</a>，目录里一个 <code>namespace.ts</code> 描述网站本身，若干个路由文件各导出一个 <code>route</code> 对象。当前快照里有约 2000 个命名空间。</p>
+<p>问题来了：几千个路由文件，如果启动时全部 <code>import</code>，启动会极慢、内存会很大。RSSHub 的解法分两步：</p>
+<ol>
+<li><strong>构建期扫描。</strong> <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/scripts/workflow/build-routes.ts">scripts/workflow/build-routes.ts</a> 遍历所有路由文件，提取每条路由的元数据（path、名称、参数、radar 规则、分类……），生成 <code>assets/build/routes.js</code>。这份文件同时也是文档站和 Radar 规则的数据来源。</li>
+<li><strong>运行期懒加载。</strong> <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry.ts#L44">registry.ts</a> 读入路由表，<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry-helpers.ts#L171-L207">registerRssRoutes</a> 为每个命名空间创建 <code>app.basePath('/&lt;namespace&gt;')</code>，为每条路由注册一个包装 handler；<strong>直到第一次有请求命中，才真正 <code>import</code> 对应的路由模块</strong>（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry-helpers.ts#L194">L194</a>），之后缓存在 <code>routeData.handler</code> 上。</li>
+</ol>
+
+<figure class="flow"><div class="flow-head">路由从源码到可访问<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;路由从源码到可访问&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;ns&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;namespace.ts&quot;, &quot;s&quot;: &quot;网站名 / url / lang&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rf&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;路由文件&quot;, &quot;s&quot;: &quot;export const route&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;build&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.5, &quot;t&quot;: &quot;build-routes.ts&quot;, &quot;s&quot;: &quot;构建期扫描&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tbl&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;routes.js&quot;, &quot;s&quot;: &quot;元数据 + 动态 import&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;docs&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;文档站 / Radar 规则&quot;, &quot;s&quot;: &quot;同一份元数据&quot;, &quot;k&quot;: &quot;&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;registry&quot;, &quot;s&quot;: &quot;basePath(/ns).get(path)&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;lazy&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;首次请求&quot;, &quot;s&quot;: &quot;import() 后缓存 handler&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ns&quot;, &quot;b&quot;: &quot;build&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rf&quot;, &quot;b&quot;: &quot;build&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;build&quot;, &quot;b&quot;: &quot;tbl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;build&quot;, &quot;b&quot;: &quot;docs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;tbl&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;启动时&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;lazy&quot;, &quot;t&quot;: &quot;命中时&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 164.0}}"></div><figcaption>你新加一个路由文件，<code>pnpm dev</code> 会重新生成路由表；开发模式下还有一个 dev registry 按需扫描目录（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry.ts#L60-L66">registry.ts</a>）。</figcaption></figure>
+<h3 id="s3-3">路由的数据契约：Route、Data、DataItem</h3>
+<p>路由作者和框架之间只靠三个类型交流，全部定义在 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts">lib/types.ts</a>：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>作用</th>
+<th>关键字段</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L378">Route</a></td>
+<td>描述“这条路由是什么”</td>
+<td><code>path</code>（Hono 路由语法，如 <code>/:section?/:type?</code>）、<code>name</code>、<code>example</code>、<code>parameters</code>、<code>categories</code>、<code>features</code>（是否需要配置、是否要浏览器、是否反爬）、<code>radar</code>、<code>maintainers</code>、<code>handler</code>、<code>view</code></td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L85">Data</a></td>
+<td>handler 的返回值，即整份 feed</td>
+<td><code>title</code>、<code>link</code>、<code>description</code>、<code>image</code>、<code>item[]</code>、<code>language</code>、<code>ttl</code></td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L33">DataItem</a></td>
+<td>feed 里的一条</td>
+<td><code>title</code>、<code>link</code>、<code>guid</code>、<code>description</code>（HTML）、<code>pubDate</code>、<code>author</code>、<code>category</code>、<code>enclosure_url</code>（播客 / BT）、<code>media</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>注意 <code>Route.view</code> 用的 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L261">ViewType</a> 枚举：<code>Articles=0, SocialMedia=1, Pictures=2, Videos=3, Audios=4, Notifications=5</code>。<strong>这正是 Folo 的 6 种视图</strong>，RSSHub 的路由作者在声明路由时就告诉了 Folo“这个源应该用哪种界面展示”。两个项目的耦合点之一就在这里。</p>
+
+<figure class="flow"><div class="flow-head">ViewType：RSSHub 路由声明 → Folo 视图<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;ViewType：RSSHub 路由声明 → Folo 视图&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;v0&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;0 · Articles&quot;, &quot;s&quot;: &quot;博客 / 新闻 / HN&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v1&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;1 · SocialMedia&quot;, &quot;s&quot;: &quot;X / 微博 / Mastodon&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v2&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;2 · Pictures&quot;, &quot;s&quot;: &quot;Pixiv / Unsplash&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v3&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;3 · Videos&quot;, &quot;s&quot;: &quot;YouTube / Bilibili&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v4&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 4.0, &quot;t&quot;: &quot;4 · Audios&quot;, &quot;s&quot;: &quot;播客&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v5&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 5.0, &quot;t&quot;: &quot;5 · Notifications&quot;, &quot;s&quot;: &quot;GitHub / 系统通知&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f0&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;文章视图&quot;, &quot;s&quot;: &quot;article-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f1&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;社交动态视图&quot;, &quot;s&quot;: &quot;social-media-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f2&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;图片瀑布流&quot;, &quot;s&quot;: &quot;picture-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f3&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;视频网格&quot;, &quot;s&quot;: &quot;video-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f4&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 4.0, &quot;t&quot;: &quot;播客播放器&quot;, &quot;s&quot;: &quot;audio-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f5&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 5.0, &quot;t&quot;: &quot;通知列表&quot;, &quot;s&quot;: &quot;notification-item&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;v0&quot;, &quot;b&quot;: &quot;f0&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v1&quot;, &quot;b&quot;: &quot;f1&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v2&quot;, &quot;b&quot;: &quot;f2&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v3&quot;, &quot;b&quot;: &quot;f3&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v4&quot;, &quot;b&quot;: &quot;f4&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v5&quot;, &quot;b&quot;: &quot;f5&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 62.0, &quot;nw&quot;: 170.0}}"></div><figcaption>左边是 RSSHub 的 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L261">ViewType</a>，右边是 Folo 的列表项组件（<a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/Items">entry-column/Items/</a>）。编号完全一致。</figcaption></figure>
+<p>一个真实的例子：<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes/hackernews/index.ts#L12-L67">hackernews 路由</a>。它的 <code>path</code> 是 <code>/:section?/:type?/:value?/:minComments?</code>，所以 <code>/hackernews</code>、<code>/hackernews/best</code>、<code>/hackernews/over/sources/100</code> 都由它处理；<code>radar</code> 字段（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes/hackernews/index.ts#L41">L41</a>）声明了“在 news.ycombinator.com/best 页面上，推荐订阅 /hackernews/best”。</p>
+<h3 id="s3-4">抓取：列表页 + 详情页 + 缓存</h3>
+<p>几乎所有路由都遵循同一个套路，<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes/hackernews/index.ts#L103">hackernews 的 handler</a> 是典型：</p>
+<pre><code class="language-ts">// 简化自 lib/routes/hackernews/index.ts
+async function handler(ctx) {
+    const section = ctx.req.param('section') ?? 'index';
+    const response = await got(currentUrl);          // 1. 抓列表页
+    const $ = load(response.data);                     // 2. cheerio 解析 HTML
+    const list = $('.athing').toArray().map((thing) =&gt; ({
+        title: $(thing).find('.titleline').children('a').text(),
+        link: `${rootUrl}/item?id=${$(thing).attr('id')}`,
+        description: `&lt;a href=&quot;...&quot;&gt;Comments on Hacker News&lt;/a&gt; | &lt;a href=&quot;...&quot;&gt;Source&lt;/a&gt;`,
+    })).slice(0, getRouteLimit(ctx, 30));             // 3. 尊重 ?limit=
+
+    const items = await pMap(list, (item) =&gt;           // 4. 详情页：并发抓取 + 缓存
+        cache.tryGet(`hackernews:comments:${item.link}`, () =&gt; fetchDetail(item)));
+
+    return { title: 'Hacker News', link: rootUrl, item: items };   // 5. 返回 Data
+}
+</code></pre>
+
+<div class="callout note"><div class="callout-title">和我们之前的实测对上了</div><p>前面用 folocli 看 <code>rsshub://hackernews</code> 时，每篇的描述都只有 “Comments on Hacker News | Source”。原因就在上面第 3 步：默认的 <code>type=sources</code> 只生成这一行链接，不抓原文。想要评论，可以订阅 <code>/hackernews/index/comments</code>；想要原文，可以加 <code>?mode=fulltext</code> 让 parameter 中间件去抽取正文。</p>
+</div>
+<p>抓取工具都在 <a class="src" href="https://github.com/DIYgod/RSSHub/tree/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils">lib/utils/</a>：</p>
+<ul>
+<li><strong>HTTP</strong>：<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/ofetch.ts#L31">ofetch.ts</a>（带重试，遇到 429/5xx 自动重试 <code>REQUEST_RETRY</code> 次）和兼容旧代码的 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/got.ts">got.ts</a>。它们统一注入 User-Agent、代理（<code>PROXY_URI</code>）、按主机限流（<code>REQUEST_RATE_LIMITS</code>）。</li>
+<li><strong>HTML 解析</strong>：<code>cheerio</code> 的 <code>load()</code>。</li>
+<li><strong>浏览器</strong>：反爬严重、必须执行 JS 的网站用 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/playwright.ts#L2">playwright.ts</a>（基于 <code>patchright</code>，可以连远程浏览器）。这类路由要在 <code>features.requirePuppeteer</code> 里声明，因为开浏览器很贵，部分部署形态（如 Workers）不支持。</li>
+<li><strong>日期</strong>：<code>parseDate</code>、<code>parseDateInTimezone</code>，因为各网站的时间格式五花八门。</li>
+</ul>
+<h3 id="s3-5">缓存：两级缓存 + 防击穿</h3>
+<p>RSSHub 最重要的工程设计是缓存。阅读器会以分钟级频率反复请求同一个 feed，而目标网站经不起这样的压力（会封 IP），抓取本身也慢。RSSHub 用了<strong>两级缓存</strong>：</p>
+
+<figure class="flow"><div class="flow-head">两级缓存与“请求进行中”锁<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;两级缓存与“请求进行中”锁&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;r1&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;请求 A：/x/y&quot;, &quot;s&quot;: &quot;缓存未命中&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r2&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;请求 B：/x/y&quot;, &quot;s&quot;: &quot;几乎同时到达&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;key&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;路由级缓存&quot;, &quot;s&quot;: &quot;key = hash(路径+格式…)&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;claim&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;claim 锁&quot;, &quot;s&quot;: &quot;path-requested&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;handler 抓取&quot;, &quot;s&quot;: &quot;列表页&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;detail&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;cache.tryGet&quot;, &quot;s&quot;: &quot;每篇详情单独缓存&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;wait&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;等待 6s × 10 次&quot;, &quot;s&quot;: &quot;或 RequestInProgress&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;r1&quot;, &quot;b&quot;: &quot;key&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;key&quot;, &quot;b&quot;: &quot;claim&quot;, &quot;t&quot;: &quot;抢到锁&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;claim&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;detail&quot;, &quot;t&quot;: &quot;N 次&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r2&quot;, &quot;b&quot;: &quot;wait&quot;, &quot;t&quot;: &quot;锁被占&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;wait:t&quot;, &quot;b&quot;: &quot;key:b&quot;, &quot;t&quot;: &quot;锁释放后读缓存&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 166.0}}"></div><figcaption>路由级缓存在 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/cache.ts#L29-L93">middleware/cache.ts</a>，详情级缓存是 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/cache/index.ts#L163">cache.tryGet</a>。</figcaption></figure>
+<ol>
+<li><strong>路由级（整份 feed）</strong>：<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/cache.ts#L29">cache.ts</a> 把“路径 + format + limit + sorted + 是否带过滤参数”哈希成 key。命中就直接把缓存的 <code>Data</code> 放进 <code>ctx</code>，跳过 handler；未命中则执行 handler，再把结果写回（<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/cache.ts#L93">L93</a>，<code>CACHE_EXPIRE</code> 默认 5 分钟，见 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/config.ts#L858">config.ts</a>）。</li>
+<li><strong>防击穿（cache stampede）</strong>：同一个冷门 feed 被 100 个阅读器同时请求时，不能让 100 个请求都去打目标网站。<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/cache.ts#L40">L40</a> 用一个 <code>claim</code> 原子锁，只让第一个请求去抓，其他请求每 6 秒检查一次，最多 10 次，超时就返回 “This path is currently fetching”。</li>
+<li><strong>详情级（单篇文章）</strong>：列表页通常每次都变，但每篇文章的详情页基本不变。<code>cache.tryGet(key, fn)</code> 让路由作者把“抓详情页”的结果单独缓存（<code>CACHE_CONTENT_EXPIRE</code> 默认 1 小时）。列表刷新时，只有新出现的文章才真正发请求。<strong>这是给 RSSHub 写路由时 review 最常要求的一点。</strong></li>
+</ol>
+<p>缓存后端可选 memory（单进程 LRU）、redis、http、Cloudflare KV，见 <a class="src" href="https://github.com/DIYgod/RSSHub/tree/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/cache">lib/utils/cache/</a> 和 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/config.ts#L856">CACHE_TYPE</a>。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 一个容易误解的地方</div><p>路由级缓存存的是 handler 的<strong>原始输出</strong>，因为 cache 是最内层的中间件，它“出来时”先执行，parameter 的过滤和 template 的渲染在它之后。所以带不同 <code>?filter=</code> 的请求可以共享抓取结果；key 里之所以包含 <code>limit</code>、<code>filtered</code> 这些标志，是因为路由自己也会读它们（比如 <code>getRouteLimit(ctx)</code> 决定抓多少条）。</p>
+</div>
+<h3 id="s3-6">Radar：从“我在看的网页”反推订阅地址</h3>
+<p>用户通常不知道某个网站对应哪条 RSSHub 路由。每条路由的 <code>radar</code> 字段声明了“哪些网页 URL 对应这条路由”，构建期汇总后通过 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/api/radar/rules/all.ts">/api/radar/rules</a> 对外提供。</p>
+<ul>
+<li><strong>RSSHub Radar</strong> 浏览器扩展读取这些规则：你打开 <code>news.ycombinator.com/best</code>，它就提示可以订阅 <code>/hackernews/best</code>。</li>
+<li><strong>Folo 的发现页</strong>也用同样的思路：在搜索框里粘贴一个网页 URL，Folo 会尝试匹配出对应的 <code>rsshub://</code> 路由（见 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/discover/UnifiedDiscoverForm.tsx#L55">UnifiedDiscoverForm.tsx</a>、<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/discover/DiscoverFeedForm.tsx#L188">DiscoverFeedForm.tsx</a>）。</li>
+</ul>
+<h3 id="s3-7">部署形态与关键配置</h3>
+<p>同一份代码可以以多种形态运行，构建配置分别是仓库根目录的 <code>tsdown*.config.ts</code> 和 <code>wrangler*.toml</code>：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>入口</th>
+<th>适合</th>
+<th>限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js / Docker</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/index.ts">lib/index.ts</a></td>
+<td>自建实例（最常见）</td>
+<td>需要自己维护；开浏览器的路由需要 Chromium</td>
+</tr>
+<tr>
+<td>Cloudflare Workers</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/worker.ts">lib/worker.ts</a></td>
+<td>免运维、全球边缘</td>
+<td>没有文件系统，私有路由要在构建期打包；浏览器能力受限</td>
+</tr>
+<tr>
+<td>Vercel / Railway / Fly</td>
+<td>根目录各平台配置</td>
+<td>一键部署</td>
+<td>受平台执行时间限制</td>
+</tr>
+</tbody>
+</table></div>
+<p>自建实例最常用的环境变量（全部在 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/config.ts">lib/config.ts</a>）：<code>PORT</code>、<code>CACHE_TYPE</code> / <code>REDIS_URL</code>、<code>CACHE_EXPIRE</code>、<code>ACCESS_KEY</code>（实例访问控制，见 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/access-control.ts">access-control.ts</a>）、<code>PROXY_URI</code>、<code>REQUEST_RATE_LIMITS</code>、各网站的 Cookie / Token（如 Twitter、Bilibili），以及 <code>USER_ROUTES_PATH</code>（挂载你自己的私有路由，见下一节）。</p>
+<h3 id="s3-8">和 Folo 的专属接口</h3>
+<p>RSSHub 里有一个专门为 Folo 准备的接口：<a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/api/follow/config.ts#L20">/api/follow/config</a>（Folo 的前身叫 Follow）。它返回 <code>ownerUserId</code>、<code>description</code>、<code>price</code>、<code>userLimit</code>、<code>cacheTime</code>、<code>gitHash</code>。这是 Folo 的“<strong>RSSHub 实例市场</strong>”用的：任何人都可以把自己部署的 RSSHub 实例登记到 Folo，设置价格和用户上限，其他 Folo 用户可以选择通过这个实例抓取 <code>rsshub://</code> 源。第 4 章会把这条链路完整画出来。</p>
+<h2 id="s4">Folo：一个多端的 AI RSS 阅读器</h2>
+<h3 id="s4-1">Monorepo 地图</h3>
+<p>Folo 是一个 pnpm workspace + Turborepo 的 monorepo（见 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/AGENTS.md">AGENTS.md</a>、<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/pnpm-workspace.yaml">pnpm-workspace.yaml</a>）。最重要的设计决策是：<strong>业务逻辑放在 <code>packages/internal</code>，被桌面、Web、移动端共享；各个 app 只负责自己运行时特有的部分。</strong></p>
+
+<figure class="flow"><div class="flow-head">Monorepo：apps 共享 packages/internal<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;Monorepo：apps 共享 packages/internal&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;desk&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;apps/desktop&quot;, &quot;s&quot;: &quot;Electron + Web 渲染层&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mob&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;apps/mobile&quot;, &quot;s&quot;: &quot;Expo / React Native&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ssr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;apps/ssr&quot;, &quot;s&quot;: &quot;分享页 SSR&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cli&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;apps/cli&quot;, &quot;s&quot;: &quot;folocli&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;store&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;store&quot;, &quot;s&quot;: &quot;zustand 业务 store&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;db&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;database&quot;, &quot;s&quot;: &quot;drizzle + SQLite&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ui&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;atoms·hooks·UI&quot;, &quot;s&quot;: &quot;设置 / 组件 / 常量&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sdk&quot;, &quot;c&quot;: 3.5, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;client-sdk&quot;, &quot;s&quot;: &quot;@follow-app · npm&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 4.6, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;Folo 后端&quot;, &quot;s&quot;: &quot;api.folo.is · 闭源&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;desk&quot;, &quot;b&quot;: &quot;store&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mob:b&quot;, &quot;b&quot;: &quot;store:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;store&quot;, &quot;b&quot;: &quot;db&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;store:b&quot;, &quot;b&quot;: &quot;sdk:b&quot;, &quot;t&quot;: &quot;所有 API 请求&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ssr&quot;, &quot;b&quot;: &quot;sdk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cli&quot;, &quot;b&quot;: &quot;sdk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sdk&quot;, &quot;b&quot;: &quot;api&quot;, &quot;t&quot;: &quot;HTTP&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [{&quot;c0&quot;: 0.0, &quot;r0&quot;: 1.5, &quot;c1&quot;: 2.0, &quot;r1&quot;: 1.5, &quot;t&quot;: &quot;packages/internal（共享业务层）&quot;, &quot;k&quot;: &quot;acc&quot;}], &quot;cfg&quot;: {&quot;cw&quot;: 180.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div><figcaption>实线箭头是“依赖 / 调用”。<code>@follow-app/client-sdk</code> 是单独发布到 npm 的 API 客户端（MIT 许可），类型定义和 <code>FeedViewType</code> 都来自它（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/constants/src/enums.ts#L1">enums.ts</a>）。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>目录</th>
+<th>是什么</th>
+<th>你可能改它来做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src">apps/desktop/layer/main</a></td>
+<td>Electron 主进程：窗口、菜单、托盘、更新、深链、IPC 服务</td>
+<td>系统集成、快捷键、本地文件能力</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src">apps/desktop/layer/renderer</a></td>
+<td>React SPA，同时是桌面端的界面和 <code>app.folo.is</code> Web 版</td>
+<td>绝大多数 UI / 交互改动</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/mobile">apps/mobile</a></td>
+<td>Expo / React Native 应用</td>
+<td>移动端</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/ssr/src">apps/ssr</a></td>
+<td>分享链接的服务端渲染（OG 标签等，见 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/ssr/src/meta-handler.ts#L40">meta-handler.ts</a>）</td>
+<td>分享页样式</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli">apps/cli</a></td>
+<td><code>folocli</code> 命令行和 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli/skill.md">skill.md</a></td>
+<td>脚本化、AI agent</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src">packages/internal/store</a></td>
+<td>每种数据一个 store：entry、feed、subscription、unread、summary、translation…</td>
+<td>数据逻辑、同步</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src">packages/internal/database</a></td>
+<td>drizzle schema、迁移、各平台 SQLite 驱动</td>
+<td>本地持久化</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/readability/src">packages/readability</a></td>
+<td>正文抽取的清洗</td>
+<td>阅读模式</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s4-2">最关键的限制：后端不在仓库里</h3>
+
+<div class="callout warn"><div class="callout-title">注意 · 先弄清楚这一点，再决定怎么定制</div><p>Folo 的公开仓库<strong>只有客户端</strong>。订阅、抓取 feed、存储条目、未读计数、AI（摘要 / 翻译 / 排序 / 对话）、付费计划，全部由 <code>api.folo.is</code> 后端完成；客户端通过 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/lib/api-client.ts#L67">FollowClient</a>（来自 <code>@follow-app/client-sdk</code>）调用它。这意味着：</p>
+<ul>
+<li>你可以自由修改和发布客户端，但它仍然连接 Folo 的官方服务，受 Folo 的服务条款约束；</li>
+<li>你<strong>无法</strong>仅凭这个仓库搭出一个完全独立、自托管的 Folo；</li>
+<li>想改变“服务端行为”（比如抓取频率、AI 模型），要么在客户端绕开（像我们在本地做的“自带 OpenAI key”那样），要么自己另建后端。</li>
+</ul>
+</div>
+<h3 id="s4-3">离线优先的数据层</h3>
+<p>Folo 的客户端不是“每次都去问服务器”，而是<strong>本地数据库 + 内存 store + 后台同步</strong>。打开 App 时先从本地 SQLite 把数据灌进内存，界面立刻可用，然后再和服务器对齐。</p>
+
+<figure class="flow"><div class="flow-head">数据层：SQLite → store → React，网络在旁路<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;数据层：SQLite → store → React，网络在旁路&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;sqlite&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;本地 SQLite&quot;, &quot;s&quot;: &quot;drizzle · wa/expo-sqlite&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;store&quot;, &quot;c&quot;: 1.5, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;zustand stores&quot;, &quot;s&quot;: &quot;entry / feed / unread&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ui&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;React 组件&quot;, &quot;s&quot;: &quot;useEntry / useFeed&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Folo API&quot;, &quot;s&quot;: &quot;client-sdk&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sync&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Sync Engine&quot;, &quot;s&quot;: &quot;lastSyncId 增量&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rq&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;React Query&quot;, &quot;s&quot;: &quot;列表分页拉取&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;sqlite&quot;, &quot;b&quot;: &quot;store&quot;, &quot;t&quot;: &quot;启动 hydrate&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;store&quot;, &quot;b&quot;: &quot;ui&quot;, &quot;t&quot;: &quot;selector&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ui:b&quot;, &quot;b&quot;: &quot;rq:r&quot;, &quot;t&quot;: &quot;滚动加载&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rq:t&quot;, &quot;b&quot;: &quot;store:b&quot;, &quot;t&quot;: &quot;upsertMany&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;api&quot;, &quot;b&quot;: &quot;sync&quot;, &quot;t&quot;: &quot;change log&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sync:t&quot;, &quot;b&quot;: &quot;store:b&quot;, &quot;t&quot;: &quot;apply&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rq:b&quot;, &quot;b&quot;: &quot;api:b&quot;, &quot;t&quot;: &quot;entries.list&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;store:t&quot;, &quot;b&quot;: &quot;sqlite:t&quot;, &quot;t&quot;: &quot;事务持久化&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 104.0, &quot;nw&quot;: 164.0}}"></div><figcaption>桌面端用 wa-sqlite + IndexedDB 存储（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/db.desktop.ts#L20">db.desktop.ts</a>），移动端用 expo-sqlite（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/db.rn.ts">db.rn.ts</a>）；两者共用同一套 drizzle schema（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/schemas/index.ts#L85">schemas/index.ts</a>）。</figcaption></figure>
+<p>关键代码：</p>
+<ul>
+<li><strong>启动灌数据</strong>：<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/initialize/index.ts#L45">initialize/index.ts</a> 调用 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/hydrate.ts#L36">hydrateDatabaseToStore</a>，从 SQLite 读出所有表，写进各个 store。</li>
+<li><strong>store 的形状</strong>：<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L37">EntryState</a> 除了 <code>data</code>（id → 条目），还维护了多组索引：<code>entryIdByView</code>、<code>entryIdByFeed</code>、<code>entryIdByCategory</code>、<code>entryIdByInbox</code>、<code>entryIdByList</code>。时间线切换视图、切换订阅源时直接查索引，不用遍历。</li>
+<li><strong>写入走事务</strong>：store 的每个 action 用 <code>createTransaction()</code> 同时更新内存和数据库，保证两边一致。</li>
+</ul>
+<h3 id="s4-4">Sync Engine：模仿 Linear 的增量同步</h3>
+<p>多设备同步是 RSS 阅读器最难做好的部分：你在手机上读过的文章，电脑上要立即变成已读；离线时的操作，上线后要补发；本地的乐观更新不能被服务器的旧快照覆盖。</p>
+<p>Folo 的方案写在 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/sync/sync-engine.ts#L49-L60">sync-engine.ts 的注释</a>里，明确说是“modelled on Linear's sync engine”：</p>
+<ol>
+<li>客户端记住一个游标 <code>lastSyncId</code>：已经应用过的最大变更日志 id（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/sync/sync-engine.ts#L138">class SyncEngine</a>）。</li>
+<li>第一次（bootstrap）从服务器取当前 id 和完整快照；之后每次只拉取“游标之后的变更”（订阅变化、已读、收藏、新条目……），逐条应用到 store。</li>
+<li>本地还没被服务器确认的操作，放在 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/sync/transaction-queue.ts#L8">transaction queue</a> 里，以 <strong>overlay</strong> 的形式叠加在服务器数据之上。这样即使拉到了较旧的快照，界面也不会“回退”你的操作。</li>
+<li>拉取在启动、网络恢复、窗口回到前台、定时器、服务器 ack 时触发（<code>SyncPullReason</code>）。</li>
+</ol>
+
+<figure class="flow"><div class="flow-head">增量同步与本地乐观更新<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;增量同步与本地乐观更新&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;user&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;用户操作&quot;, &quot;s&quot;: &quot;标记已读 / 收藏&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;queue&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Transaction Queue&quot;, &quot;s&quot;: &quot;overlay 待确认&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;store&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;store（界面所见）&quot;, &quot;s&quot;: &quot;服务器数据 + overlay&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;server&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Folo 后端&quot;, &quot;s&quot;: &quot;change log&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;engine&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Sync Engine&quot;, &quot;s&quot;: &quot;pull(since lastSyncId)&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;user&quot;, &quot;b&quot;: &quot;queue&quot;, &quot;t&quot;: &quot;乐观写入&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;queue&quot;, &quot;b&quot;: &quot;store&quot;, &quot;t&quot;: &quot;立即生效&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;queue:b&quot;, &quot;b&quot;: &quot;server:t&quot;, &quot;t&quot;: &quot;发送 mutation&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;server&quot;, &quot;b&quot;: &quot;engine&quot;, &quot;t&quot;: &quot;actions&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;engine:t&quot;, &quot;b&quot;: &quot;store:b&quot;, &quot;t&quot;: &quot;rebase&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 168.0}}"></div><figcaption>服务器确认后，overlay 被移除，store 里留下的就是服务器的真实状态。</figcaption></figure>
+<h3 id="s4-5">一条时间线是怎么显示出来的</h3>
+<p>以桌面端打开“文章”视图为例：</p>
+
+<figure class="flow"><div class="flow-head">从路由参数到列表项组件<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从路由参数到列表项组件&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;route&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;路由参数&quot;, &quot;s&quot;: &quot;feedId / view / inbox&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;byview&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;useEntriesByView&quot;, &quot;s&quot;: &quot;拼查询参数&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;query&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;useEntriesQuery&quot;, &quot;s&quot;: &quot;React Query 无限列表&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fetch&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;fetchEntries&quot;, &quot;s&quot;: &quot;entrySyncServices&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;entries.list&quot;, &quot;s&quot;: &quot;Folo API&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;upsert&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;upsertMany&quot;, &quot;s&quot;: &quot;store + SQLite&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ids&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;本地 id 列表&quot;, &quot;s&quot;: &quot;按索引过滤 / 排序&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;item&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;按视图选组件&quot;, &quot;s&quot;: &quot;Article / Picture…&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;route&quot;, &quot;b&quot;: &quot;byview&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;byview&quot;, &quot;b&quot;: &quot;query&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;query&quot;, &quot;b&quot;: &quot;fetch&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fetch&quot;, &quot;b&quot;: &quot;api&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;api&quot;, &quot;b&quot;: &quot;upsert&quot;, &quot;t&quot;: &quot;返回 entries&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;upsert&quot;, &quot;b&quot;: &quot;ids&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ids&quot;, &quot;b&quot;: &quot;item&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 170.0}}"></div><figcaption><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/hooks/useEntriesByView.ts">useEntriesByView</a> → <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/hooks.ts#L204">useEntriesQuery</a> → <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L495">fetchEntries</a> → <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/Items/getItemComponentByView.ts#L20">getItemComponentByView</a>。</figcaption></figure>
+<ul>
+<li><strong>6 种视图</strong>是 Folo 和传统阅读器最大的区别：<a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/Items">entry-column/Items/</a> 里 <code>article-item</code>、<code>social-media-item</code>、<code>picture-item</code>、<code>video-item</code>、<code>audio-item</code>、<code>notification-item</code> 各自一个组件。RSSHub 路由声明的 <code>view</code> 正是为这 6 种视图准备的元数据。</li>
+<li><strong>条目详情</strong>在 <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-content">entry-content/</a>，阅读模式（readability）会请求服务端抽取正文，再由 <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/readability/src">packages/readability</a> 清洗。</li>
+<li><strong>AI 排序</strong>只是 <code>entries.list</code> 的一个 <code>aiSort: true</code> 参数（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/hooks/useEntriesByView.ts#L74">L74</a>、<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L534">L534</a>），排序在服务端完成，结果按顺序返回一页 100 条。</li>
+</ul>
+<h3 id="s4-6">Electron：主进程、渲染进程与 IPC</h3>
+
+<figure class="flow"><div class="flow-head">桌面端的两个进程<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;桌面端的两个进程&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;main&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;主进程 main&quot;, &quot;s&quot;: &quot;Node.js · 系统能力&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ipcs&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;IPC Services&quot;, &quot;s&quot;: &quot;auth / reader / dock…&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;proxy&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;createIpcProxy&quot;, &quot;s&quot;: &quot;类型安全的远程调用&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rend&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;渲染进程 renderer&quot;, &quot;s&quot;: &quot;React SPA&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;os&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;操作系统&quot;, &quot;s&quot;: &quot;深链 folo:// · 菜单 · 托盘&quot;, &quot;k&quot;: &quot;&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Folo API&quot;, &quot;s&quot;: &quot;带 Cookie 的请求&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;main&quot;, &quot;b&quot;: &quot;ipcs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ipcs&quot;, &quot;b&quot;: &quot;proxy&quot;, &quot;t&quot;: &quot;ipcRenderer&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;proxy&quot;, &quot;b&quot;: &quot;rend&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;os:t&quot;, &quot;b&quot;: &quot;main:b&quot;, &quot;t&quot;: &quot;open-url&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ipcs:b&quot;, &quot;b&quot;: &quot;api:t&quot;, &quot;t&quot;: &quot;fetchWithAuth&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 168.0}}"></div><figcaption>服务清单在 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src/ipc/index.ts#L2-L25">ipc/index.ts</a>，渲染进程侧的代理在 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/lib/client.ts#L3">lib/client.ts</a>。</figcaption></figure>
+<ul>
+<li><strong>IPC 是类型安全的</strong>：主进程用 <code>electron-ipc-decorator</code> 定义 <code>AppService</code>、<code>AuthService</code>、<code>ReaderService</code> 等服务类，导出 <code>IpcServices</code> 类型；渲染进程 <code>createIpcProxy&lt;IpcServices&gt;()</code> 得到一个“像本地对象一样调用”的代理。加一个系统能力 = 在主进程加一个方法，渲染进程就有类型提示。</li>
+<li><strong>登录态在主进程</strong>：Electron 里的 API 请求经 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/lib/api-client.ts">api-client.ts</a> 的 <code>fetchWithElectronAuth</code> 交给主进程带上 Cookie 发出。</li>
+<li><strong>深链协议</strong>：<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src/manager/app.ts#L72">registerProtocols</a> 注册 <code>folo://</code>（开发版是 <code>folo-dev://</code>，见 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/shared/src/constants.ts#L24-L26">constants.ts</a>）。浏览器里完成 OAuth 登录后，通过 <code>folo://auth?token=...</code> 回到 App。我们本地测试时遇到的“登录跳去了官方 App”，就是因为开发版只认 <code>folo-dev://</code>；登录页底部的“输入授权令牌”就是为这种情况准备的。</li>
+</ul>
+<h3 id="s4-7">AI 功能是怎么接上的</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>功能</th>
+<th>客户端调用</th>
+<th>源码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AI 对话</td>
+<td>AI SDK 的 <code>HttpChatTransport</code> → <code>POST /ai/chat</code>，服务端流式返回 UI message chunks，工具调用（查条目、画图表…）在服务端执行</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/ai-chat/store/transport.ts#L55">transport.ts</a></td>
+</tr>
+<tr>
+<td>摘要</td>
+<td><code>api().ai.summary({ id, language, target })</code></td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/summary/store.ts#L136">summary/store.ts</a></td>
+</tr>
+<tr>
+<td>翻译</td>
+<td><code>api().ai.translationBatch()</code>，批量 + NDJSON 流式返回</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/translation/store.ts#L179">translation/store.ts</a></td>
+</tr>
+<tr>
+<td>AI 排序</td>
+<td><code>entries.list({ aiSort: true })</code></td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L534">entry/store.ts</a></td>
+</tr>
+<tr>
+<td>付费限制</td>
+<td>哪些设置需要付费计划</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/shared/src/settings/constants.ts#L17">settings/constants.ts</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout key"><div class="callout-title">要点 · 定制案例：我们在本地做的“自带 OpenAI key”</div><p>因为 AI 全在服务端，想用自己的模型就得在客户端“截流”。我们在你的 fork 里做的改动正好是一个完整的定制样板，涉及的层次也就是本章讲过的这些：</p>
+<ol>
+<li>在 <code>packages/internal/store</code> 新增 <code>local-ai</code> 模块（纯 <code>fetch</code> 调 OpenAI 兼容接口），由 app 注册配置；</li>
+<li>在 summary / translation / entry 三个 store 的“调用 API 之前”分支到本地实现；</li>
+<li>用 AI SDK 写了一个本地 <code>ChatTransport</code>，把当前文章 / 订阅源作为上下文，并提供 <code>read_entry</code>、<code>search_entries</code> 等本地工具；</li>
+<li>新增设置页组件，配置只存本机 localStorage，不进入会同步到服务器的设置。</li>
+</ol>
+<p>这个模式（<strong>在 store 层的 API 调用处加一个可插拔的 provider</strong>）可以复用到很多定制上。</p>
+</div>
+<h3 id="s4-8">其他端：移动端、CLI、分享页</h3>
+<ul>
+<li><strong>移动端</strong> <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/mobile">apps/mobile</a>：Expo，复用 <code>packages/internal</code> 的 store 和 database（expo-sqlite 驱动），UI 单独实现。</li>
+<li><strong>CLI</strong> <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli/src">apps/cli</a>：直接用 client-sdk 调 API，输出稳定的 JSON 信封 <code>{ok, data, error}</code>，<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli/skill.md">skill.md</a> 就是写给 AI agent 的使用说明，我们已经把它装成了 Claude Code skill。</li>
+<li><strong>分享页</strong> <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/ssr/src">apps/ssr</a>：为分享出去的订阅源 / 列表生成带 OG 标签的页面。</li>
+</ul>
+<h2 id="s5">端到端：一条 rsshub:// 订阅的旅程</h2>
+<p>把前面所有组件串起来。假设你在 Folo 里订阅了 <code>rsshub://hackernews</code>：</p>
+
+<figure class="flow"><div class="flow-head">从订阅到时间线<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从订阅到时间线&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;c1&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;① 订阅&quot;, &quot;s&quot;: &quot;rsshub://hackernews&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s1&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;② Folo 后端&quot;, &quot;s&quot;: &quot;解析 rsshub:// 前缀&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;inst&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;③ 选择实例&quot;, &quot;s&quot;: &quot;官方 / 你登记的实例&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rh&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;④ RSSHub&quot;, &quot;s&quot;: &quot;/hackernews?format=…&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hn&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;⑤ HN 网站&quot;, &quot;s&quot;: &quot;news.ycombinator.com&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;store&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;⑥ 存储条目&quot;, &quot;s&quot;: &quot;去重 · 写 change log&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sync&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;⑦ 同步到客户端&quot;, &quot;s&quot;: &quot;entries.list / sync&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ui&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;⑧ 时间线渲染&quot;, &quot;s&quot;: &quot;Article 视图&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;c1&quot;, &quot;b&quot;: &quot;s1&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s1&quot;, &quot;b&quot;: &quot;inst&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;inst&quot;, &quot;b&quot;: &quot;rh&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rh&quot;, &quot;b&quot;: &quot;hn&quot;, &quot;t&quot;: &quot;got + cheerio&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rh:b&quot;, &quot;b&quot;: &quot;store:r&quot;, &quot;t&quot;: &quot;RSS / JSON feed&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;store&quot;, &quot;b&quot;: &quot;sync&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sync&quot;, &quot;b&quot;: &quot;ui&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 184.0, &quot;rh&quot;: 104.0, &quot;nw&quot;: 156.0}}"></div><figcaption>①⑦⑧ 在开源客户端里；②③⑥ 在闭源后端里，客户端只能看到相关的 API（例如登记实例的 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/queries/rsshub.ts#L13">rsshub.use / create</a>）；④⑤ 在开源的 RSSHub 里。</figcaption></figure>
+<p>几个要点：</p>
+<ul>
+<li><strong><code>rsshub://</code> 是一个“逻辑地址”</strong>：订阅里存的不是某台具体服务器的 URL，而是路由路径。具体由哪台 RSSHub 实例去抓，由后端决定：默认由 Folo 官方的实例处理，你也可以在设置里登记自己的实例（客户端在 <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/rsshub">modules/rsshub/</a>，地址校验规则见 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/rsshub/instance-url.ts#L14">instance-url.ts</a>）。这样同一个订阅可以在不同实例之间迁移，不需要改订阅本身。</li>
+<li><strong>实例的元信息</strong>来自 RSSHub 那边的 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/api/follow/config.ts#L20">/api/follow/config</a>：实例所有者、价格、用户上限、缓存时间、git 版本。</li>
+<li><strong>抓取频率</strong>受两层缓存叠加影响：RSSHub 的路由级缓存（默认 5 分钟）和 Folo 后端自己的刷新策略。所以“网站刚更新、Folo 里还没出现”是正常的。</li>
+<li><strong>视图</strong>：RSSHub 路由声明的 <code>view</code>（<code>ViewType</code>）和 Folo 的视图编号一一对应，用来提示这个源适合用哪种界面展示；订阅时你仍然可以自己选。</li>
+</ul>
+
+<div class="callout analogy"><div class="callout-title">类比 · 订阅地址像收件人姓名</div><p><code>rsshub://hackernews</code> 像快递单上的“收件人姓名”，而不是“具体哪个快递站”。Folo 后端是调度中心，决定这次交给哪个快递站（RSSHub 实例）去取件；你可以自己开一个快递站，登记到调度中心。</p>
+</div>
+<h2 id="s6">开源许可证：你能做什么、必须做什么</h2>
+<blockquote>
+<p>以下是对许可证文本的技术性解读，帮助你判断常见场景，<strong>不是法律意见</strong>。涉及商业发布时请咨询律师。</p>
+</blockquote>
+<h3 id="s6-1">两个项目的许可证</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目 / 部分</th>
+<th>许可证</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RSSHub</td>
+<td><strong>AGPL-3.0</strong></td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/LICENSE">LICENSE</a>、<code>package.json</code> 的 <code>&quot;license&quot;: &quot;AGPL-3.0&quot;</code></td>
+</tr>
+<tr>
+<td>Folo 客户端（整个仓库默认）</td>
+<td><strong>AGPL-3.0-only</strong></td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/LICENSE">LICENSE</a>、根 <code>package.json</code></td>
+</tr>
+<tr>
+<td>Folo 的 <code>icons/mgc</code> 目录</td>
+<td><strong>不可再分发</strong>（版权属于 MingCute）</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/README.md#L143-L147">README 的附加例外</a>、<a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/icons/mgc">icons/mgc/</a>（232 个文件）</td>
+</tr>
+<tr>
+<td><code>packages/internal/utils</code>、<code>apps/mobile/native</code></td>
+<td>MIT（package.json 声明）</td>
+<td>各自的 <code>package.json</code></td>
+</tr>
+<tr>
+<td><code>apps/desktop/layer/main</code></td>
+<td>package.json 写的是 GPL-3.0-only</td>
+<td>与仓库 LICENSE 不一致，以仓库根 LICENSE 为准更稳妥</td>
+</tr>
+<tr>
+<td><code>@follow-app/client-sdk</code>（npm 依赖）</td>
+<td>MIT</td>
+<td>npm 元数据</td>
+</tr>
+<tr>
+<td>Folo 后端</td>
+<td>不公开</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout note"><div class="callout-title">许可证变更的时间点</div><p>RSSHub 从 2018 年起一直是 MIT 许可（<a href="https://github.com/DIYgod/RSSHub/blob/3591447e/LICENSE">LICENSE 初版</a>），在 <strong>2025-12-28</strong> 的提交 <a href="https://github.com/DIYgod/RSSHub/commit/0db4c9ce">0db4c9ce</a> 改为 AGPL-3.0。许可证不能追溯收回：这之前发布的版本仍然可以按 MIT 使用，但之后的代码（包括你现在 clone 到的版本和你新提交的路由）都是 AGPL-3.0。网上很多老教程还写着 MIT，就是这个原因。</p>
+</div>
+<h3 id="s6-2">AGPL-3.0 的核心规则</h3>
+<p>AGPL 是 GPL-3.0 加上一条“网络条款”：</p>
+<ol>
+<li><strong>你可以</strong>：自由使用、学习、修改、再分发，包括商业用途。没有“非商用”限制。</li>
+<li><strong>分发时</strong>（发布源码 fork、发安装包、发 Docker 镜像）：必须以同样的 AGPL 许可提供<strong>对应的完整源代码</strong>，保留版权和许可证声明，并标明你做了修改。</li>
+<li><strong>网络条款（第 13 条）</strong>：如果你<strong>修改了</strong>程序，并让其他人<strong>通过网络与它交互</strong>（比如对外开放一个改过的 RSSHub 实例，或部署一个改过的 Folo Web 版），即使你没有“分发”任何文件，也必须向这些用户提供修改后的源代码。这是 AGPL 和 GPL 的关键区别。</li>
+<li><strong>衍生作品整体适用</strong>：和 AGPL 代码组合成一个程序的部分（比如你加进 RSSHub 的新路由），整体要以 AGPL 发布。</li>
+<li><strong>不授予商标权</strong>：许可证管代码，不管名字和 Logo。</li>
+</ol>
+
+<figure class="flow"><div class="flow-head">许可证义务速查：从你的使用方式出发<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;许可证义务速查：从你的使用方式出发&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;start&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;你改了代码吗？&quot;, &quot;s&quot;: &quot;RSSHub / Folo&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;none&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;没改，原样使用&quot;, &quot;s&quot;: &quot;只需保留许可声明&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mod&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.6, &quot;t&quot;: &quot;改了&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;self&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.9, &quot;t&quot;: &quot;只有你自己用&quot;, &quot;s&quot;: &quot;不分发、不对外服务&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dist&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.9, &quot;t&quot;: &quot;分发给别人&quot;, &quot;s&quot;: &quot;fork / 安装包 / 镜像&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;net&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.9, &quot;t&quot;: &quot;对外提供网络服务&quot;, &quot;s&quot;: &quot;公开实例 / Web 版&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ok&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.9, &quot;t&quot;: &quot;无额外义务&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;src&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.4, &quot;t&quot;: &quot;提供完整对应源码&quot;, &quot;s&quot;: &quot;AGPL · 第 6 / 13 条&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;brand&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 2.4, &quot;t&quot;: &quot;改名 + 换图标&quot;, &quot;s&quot;: &quot;icons/mgc · 商标&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;start&quot;, &quot;b&quot;: &quot;none&quot;, &quot;t&quot;: &quot;否&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;start&quot;, &quot;b&quot;: &quot;mod&quot;, &quot;t&quot;: &quot;是&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mod&quot;, &quot;b&quot;: &quot;self&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mod&quot;, &quot;b&quot;: &quot;dist&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mod&quot;, &quot;b&quot;: &quot;net&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;self&quot;, &quot;b&quot;: &quot;ok&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;dist&quot;, &quot;b&quot;: &quot;src&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;net&quot;, &quot;b&quot;: &quot;src&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;src&quot;, &quot;b&quot;: &quot;brand&quot;, &quot;t&quot;: &quot;Folo fork&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 166.0}}"></div><figcaption>AGPL 的义务由“分发”或“通过网络让别人使用改过的程序”触发；只是自己改着用不触发任何义务。</figcaption></figure>
+<h3 id="s6-3">常见场景对照</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>你想做的事</th>
+<th>允许吗</th>
+<th>需要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本地跑、读源码、自己改着用（不给别人用）</td>
+<td>允许</td>
+<td>不触发任何义务</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>允许</td>
+<td>你的贡献按项目许可证（AGPL）进入上游；两个项目目前都<strong>不要求签 CLA</strong></td>
+</tr>
+<tr>
+<td>自建 RSSHub 实例<strong>只给自己</strong>用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>自建<strong>改过的</strong> RSSHub 实例并<strong>公开</strong>给他人用 / 登记到 Folo 实例市场</td>
+<td>允许</td>
+<td>按第 13 条向用户提供你修改后的源码（最简单：公开你的 fork，并在实例首页给出链接）</td>
+</tr>
+<tr>
+<td>在 RSSHub 里用 <code>USER_ROUTES_PATH</code> 加载私有路由并对外服务</td>
+<td>允许</td>
+<td>私有路由和 RSSHub 组合运行，对外服务时稳妥的做法是同样公开；只自用则无义务</td>
+</tr>
+<tr>
+<td>在 GitHub 上公开你的 Folo fork</td>
+<td>允许</td>
+<td>保持 AGPL；<strong>注意 <code>icons/mgc</code> 不可再分发</strong>，严格来说应替换或移除这些图标</td>
+</tr>
+<tr>
+<td>发布你自己编译的 Folo 安装包给别人</td>
+<td>允许</td>
+<td>提供对应源码；替换 <code>icons/mgc</code>；<strong>改名、换 Logo</strong>，避免让人以为是官方 Folo；遵守 Folo 服务条款（你的客户端仍连 <code>api.folo.is</code>）</td>
+</tr>
+<tr>
+<td>上架 App Store</td>
+<td>有风险</td>
+<td>GPL 系许可证与 App Store 的使用条款存在已知冲突，个人 fork 上架需要谨慎评估</td>
+</tr>
+<tr>
+<td>把 RSSHub / Folo 代码拿进闭源商业产品</td>
+<td>不允许（除非整体开源）</td>
+<td>只能以 AGPL 开源整个衍生作品</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 对你的具体建议</div><ul>
+<li><strong>只自用</strong>：随便改，什么都不用做。</li>
+<li><strong>准备公开 fork</strong>：先把 <code>icons/mgc</code> 换成可再分发的图标（比如其他 MIT 图标集），给项目起个新名字，在 README 写清楚“基于 Folo（AGPL-3.0）修改”。</li>
+<li><strong>对外提供服务</strong>：在页面上放“源代码”链接指向你的 fork。</li>
+<li><strong>客户端仍连官方后端时</strong>：记得这是在使用 Folo 的服务，要遵守它的条款，例如不要用修改过的客户端绕过服务端的付费功能。我们本地做的“自带 key”改动用的是你自己的 OpenAI 额度，没有调用 Folo 的付费 AI 服务。</li>
+</ul>
+</div>
+<h2 id="s7">贡献与定制</h2>
+<h3 id="s7-1">给 RSSHub 贡献一条路由</h3>
+<pre><code class="language-bash">git clone https://github.com/DIYgod/RSSHub.git &amp;&amp; cd RSSHub
+pnpm i
+pnpm dev                      # http://localhost:1200
+pnpm new:route --help         # 交互式脚手架：命名空间、文件名、维护者、模板（API / HTML / 浏览器）
+# 浏览器打开 http://localhost:1200/&lt;namespace&gt;/&lt;path&gt; 检查输出
+</code></pre>
+<p>脚手架是 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/scripts/generate-route.mjs">scripts/generate-route.mjs</a>。提交前对照 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/AGENTS.md">AGENTS.md</a> 里的 review 规则，最常被指出的问题：</p>
+<ul>
+<li><code>example</code> 必须以 <code>/</code> 开头且能访问；<code>categories</code> 只写一个；<code>radar.source</code> 不带 <code>https://</code>；</li>
+<li>抓详情页一定用 <code>cache.tryGet()</code>；不要对同一段 HTML 调用两次 <code>load()</code>；</li>
+<li>只用 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L33">DataItem</a> 里定义的字段；</li>
+<li>只有真的用了浏览器才设置 <code>requirePuppeteer: true</code>；<code>maintainers</code> 写有效的 GitHub 用户名。</li>
+</ul>
+
+<div class="callout key"><div class="callout-title">要点 · 不想合并到上游时：私有路由</div><p>设置 <code>USER_ROUTES_PATH=/app/routes-user</code>，在里面放独立的 <code>.mjs</code> 文件，每个文件导出 <code>namespace</code> 和 <code>routes</code>，就能注册新的命名空间，同样享受缓存、过滤参数和多格式输出（见 <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/user-routes.ts">lib/user-routes.ts</a>）。适合给公司内网、个人账号这类不适合公开的来源写 feed。</p>
+</div>
+<h3 id="s7-2">给 Folo 贡献</h3>
+<pre><code class="language-bash">git clone https://github.com/RSSNext/Folo.git &amp;&amp; cd Folo
+corepack enable &amp;&amp; corepack prepare
+pnpm install
+cd apps/desktop &amp;&amp; pnpm run dev:web       # 浏览器开发，连接线上 API
+# 或者：pnpm run dev:electron              # Electron 开发
+</code></pre>
+<ul>
+<li>提交前按 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/AGENTS.md">AGENTS.md</a> 的顺序：<code>pnpm run typecheck</code> → <code>pnpm run lint:fix</code> → <code>pnpm run test</code>。</li>
+<li>详细说明在 <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/CONTRIBUTING.md">CONTRIBUTING.md</a>，包括 Electron 登录问题的处理（复制 <code>__Secure-better-auth.session_token</code>）。</li>
+<li><strong>适合入手的方向</strong>：某一种视图的列表项 / 详情布局（<a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/Items">Items/</a>）、设置页、集成（<a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src/ipc/services/integration.ts">integration.ts</a>：发送到 Obsidian / Readwise…）、阅读模式清洗、CLI 命令、国际化文案（<a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/locales">locales/</a>）。</li>
+<li><strong>需要谨慎的方向</strong>：任何依赖服务端新接口的功能。你没法改后端，PR 只能用已有的 API。</li>
+</ul>
+<h3 id="s7-3">打造“自己喜欢的阅读器”：三条路线</h3>
+
+<figure class="flow"><div class="flow-head">三条定制路线<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;三条定制路线&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;A · 定制 Folo 客户端&quot;, &quot;s&quot;: &quot;fork + 连官方后端&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;C · agent 工作流&quot;, &quot;s&quot;: &quot;folocli + Claude skill&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.2, &quot;t&quot;: &quot;B · 自建全栈&quot;, &quot;s&quot;: &quot;RSSHub + 自托管聚合器&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ap&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;改 UI / 视图 / AI&quot;, &quot;s&quot;: &quot;最快见效&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;排序 / 摘要 / 分析&quot;, &quot;s&quot;: &quot;不写界面&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.2, &quot;t&quot;: &quot;完全掌控数据和抓取&quot;, &quot;s&quot;: &quot;工作量最大&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;folo&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.5, &quot;t&quot;: &quot;Folo 后端&quot;, &quot;s&quot;: &quot;api.folo.is&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rh&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.2, &quot;t&quot;: &quot;你的 RSSHub&quot;, &quot;s&quot;: &quot;自建实例&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;ap&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;cp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;bp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ap&quot;, &quot;b&quot;: &quot;folo&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cp&quot;, &quot;b&quot;: &quot;folo&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bp&quot;, &quot;b&quot;: &quot;rh&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 210.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>路线 A、C 依赖 Folo 官方服务；路线 B 完全独立，但需要自己写或选一个后端 / 客户端。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>做法</th>
+<th>优点</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. 定制 Folo 客户端</strong></td>
+<td>fork Folo，改 UI、视图、快捷键、AI provider（参考我们做的本地 OpenAI 改动），连接官方后端</td>
+<td>继承 Folo 全部功能和多端同步；改动可以回馈上游</td>
+<td>受限于官方 API 和服务条款；后端行为改不了</td>
+</tr>
+<tr>
+<td><strong>B. 自建全栈</strong></td>
+<td>自建 RSSHub 实例 + 一个可自托管的聚合后端（自己写，或选用其他开源的自托管阅读器服务），再配一个客户端</td>
+<td>数据、抓取频率、AI 全部自己掌控</td>
+<td>Folo 客户端和它的 API 深度绑定，无法直接换后端；工作量最大</td>
+</tr>
+<tr>
+<td><strong>C. agent 工作流</strong></td>
+<td>用 folocli + Claude skill（已装好），让 AI 按你的标准排序、摘要、写日报</td>
+<td>零界面开发，马上可用</td>
+<td>只是“读和管理”，不是完整的阅读器界面</td>
+</tr>
+</tbody>
+</table></div>
+<p>一个务实的组合是：<strong>先用 C 验证你想要的“排序 / 摘要”标准，再用 A 把它做进界面；如果某个网站没有 feed，就给 RSSHub 写一条路由（或私有路由），然后在 Folo 里订阅 <code>rsshub://你的路由</code>。</strong></p>
+<h2 id="s8">附录：源码索引</h2>
+<h3 id="s8-1">RSSHub</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>进程入口 / 监听</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/index.ts#L54">lib/index.ts</a></td>
+</tr>
+<tr>
+<td>中间件顺序</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/app-bootstrap.tsx#L37-L53">lib/app-bootstrap.tsx</a></td>
+</tr>
+<tr>
+<td>路由表加载</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry.ts#L44">lib/registry.ts</a></td>
+</tr>
+<tr>
+<td>注册与懒加载</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/registry-helpers.ts#L171-L207">lib/registry-helpers.ts</a></td>
+</tr>
+<tr>
+<td>路由表生成</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/scripts/workflow/build-routes.ts">scripts/workflow/build-routes.ts</a></td>
+</tr>
+<tr>
+<td>类型契约</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L378">Route</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L85">Data</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L33">DataItem</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L261">ViewType</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/types.ts#L385">RadarItem</a></td>
+</tr>
+<tr>
+<td>路由级缓存</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/cache.ts#L29-L93">lib/middleware/cache.ts</a></td>
+</tr>
+<tr>
+<td>详情级缓存</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/cache/index.ts#L163">cache.tryGet</a></td>
+</tr>
+<tr>
+<td>过滤参数</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/parameter.ts#L68">lib/middleware/parameter.ts</a></td>
+</tr>
+<tr>
+<td>输出渲染</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/middleware/template.tsx#L121-L129">lib/middleware/template.tsx</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/tree/8f4fd435601c7f5048ce65284405f276f70fb918/lib/views">lib/views/</a></td>
+</tr>
+<tr>
+<td>示例路由</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes/hackernews/index.ts#L103">hackernews</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/routes/hackernews/namespace.ts">namespace.ts</a></td>
+</tr>
+<tr>
+<td>HTTP / 浏览器</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/ofetch.ts#L31">ofetch.ts</a> · <a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/utils/playwright.ts#L2">playwright.ts</a></td>
+</tr>
+<tr>
+<td>Radar 规则接口</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/api/radar/rules/all.ts">lib/api/radar/rules/all.ts</a></td>
+</tr>
+<tr>
+<td>Folo 专用接口</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/api/follow/config.ts#L20">lib/api/follow/config.ts</a></td>
+</tr>
+<tr>
+<td>配置项</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/config.ts">lib/config.ts</a></td>
+</tr>
+<tr>
+<td>Workers 入口</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/worker.ts">lib/worker.ts</a></td>
+</tr>
+<tr>
+<td>私有路由</td>
+<td><a class="src" href="https://github.com/DIYgod/RSSHub/blob/8f4fd435601c7f5048ce65284405f276f70fb918/lib/user-routes.ts">lib/user-routes.ts</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s8-2">Folo</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API 客户端</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/lib/api-client.ts#L67">api-client.ts</a></td>
+</tr>
+<tr>
+<td>启动流程</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/initialize/index.ts#L45">initialize/index.ts</a></td>
+</tr>
+<tr>
+<td>本地库 → store</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/hydrate.ts#L36">hydrate.ts</a></td>
+</tr>
+<tr>
+<td>数据库驱动 / schema</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/db.desktop.ts#L20">db.desktop.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/db.rn.ts">db.rn.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/database/src/schemas/index.ts#L85">schemas</a></td>
+</tr>
+<tr>
+<td>同步引擎</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/sync/sync-engine.ts#L49">sync-engine.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/sync/transaction-queue.ts#L8">transaction-queue.ts</a></td>
+</tr>
+<tr>
+<td>条目 store / 拉取</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L37">EntryState</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/store.ts#L495">fetchEntries</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/entry/hooks.ts#L204">useEntriesQuery</a></td>
+</tr>
+<tr>
+<td>视图组件</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/entry-column/Items/getItemComponentByView.ts#L20">getItemComponentByView.ts</a></td>
+</tr>
+<tr>
+<td>Electron IPC</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src/ipc/index.ts#L2">main/ipc</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/lib/client.ts#L3">renderer/lib/client.ts</a></td>
+</tr>
+<tr>
+<td>深链协议</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/main/src/manager/app.ts#L72">manager/app.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/shared/src/constants.ts#L24-L26">constants.ts</a></td>
+</tr>
+<tr>
+<td>RSSHub 实例管理</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/queries/rsshub.ts#L13">queries/rsshub.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/tree/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/rsshub">modules/rsshub/</a></td>
+</tr>
+<tr>
+<td>AI</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/desktop/layer/renderer/src/modules/ai-chat/store/transport.ts#L55">transport.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/summary/store.ts#L136">summary</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/store/src/modules/translation/store.ts#L179">translation</a></td>
+</tr>
+<tr>
+<td>付费设置</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/packages/internal/shared/src/settings/constants.ts#L17">settings/constants.ts</a></td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli/src/program.ts">program.ts</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/apps/cli/skill.md">skill.md</a></td>
+</tr>
+<tr>
+<td>许可证</td>
+<td><a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/LICENSE">LICENSE</a> · <a class="src" href="https://github.com/RSSNext/Folo/blob/158ecbecaac12777b2c3a1e1cc4be90d6bbb28b1/README.md#L143-L147">README 例外条款</a></td>
+</tr>
+</tbody>
+</table></div>
+
+</main>
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script>
+// ---------- React-Flow-style diagram renderer (pure SVG, works offline and in print) ----------
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function render(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var defs = el("defs", {}, svg);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, defs);
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), labelLayer = el("g", {}, svg);   // labels on top
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e, i) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);                     // U-shaped loop between two ports on the same side
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 7, p3[1] + d3[1] * 7];             // stop before the arrowhead
+      var cls = "f-e" + (e.k ? " k-" + e.k : "") + (e.anim ? " anim" : "") + (e.dash ? " dash" : "");
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": cls }, edgeLayer);
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z",
+        "class": "f-ah" + (e.k ? " k-" + e.k : "") }, labelLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el" }, labelLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 255 ? 11.5 : 6.6; tw = Math.max(24, tw);
+        // label wider than the gap it sits in: lift it above a horizontal edge / beside a vertical one
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : "") }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [["l", P.x, P.cy], ["r", P.x + P.w, P.cy], ["t", P.cx, P.y], ["b", P.cx, P.y + P.h]].forEach(function (h) {
+        el("circle", { cx: h[1], cy: h[2], r: 2.6, "class": "f-handle" }, g);
+      });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        svg.classList.remove("f-on"); svg.querySelectorAll(".hl").forEach(function (x) { x.classList.remove("hl"); });
+      });
+    });
+    host.appendChild(svg);
+    // grow the canvas to whatever was actually drawn (loop edges swing outside the node grid)
+    try {
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0));
+      svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  document.querySelectorAll(".flow-body[data-flow]").forEach(function (h) {
+    try { render(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+  });
+})();
+
+</script>
+<script>
+(function () {
+  var b = document.getElementById("theme-btn"), r = document.documentElement;
+  try { var s = localStorage.getItem("rss-guide-theme"); if (s) r.setAttribute("data-theme", s); } catch (e) {}
+  b.addEventListener("click", function () {
+    var dark = r.getAttribute("data-theme") ? r.getAttribute("data-theme") === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = dark ? "light" : "dark"; r.setAttribute("data-theme", next);
+    try { localStorage.setItem("rss-guide-theme", next); } catch (e) {}
+  });
+  var links = [].slice.call(document.querySelectorAll(".sidebar a"));
+  var heads = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+  function onScroll() {
+    var cur = 0;
+    for (var i = 0; i < heads.length; i++) if (heads[i] && heads[i].getBoundingClientRect().top < 120) cur = i;
+    links.forEach(function (a, i) { a.classList.toggle("cur", i === cur); });
+  }
+  addEventListener("scroll", onScroll, { passive: true }); onScroll();
+})();
+</script>
+</body>
+</html>

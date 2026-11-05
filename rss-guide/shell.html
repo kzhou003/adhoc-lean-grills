@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RSSHub + Folo 源码导读</title>
+<style>
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --warn: #b7791f; --warn-soft: #fbf0dc; --ok: #2e8b57; --ok-soft: #e4f3ea; --bad: #c0392b; --bad-soft: #fbe5e2;
+  --vio: #7a4fc4; --vio-soft: #efe8fb;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --sidebar: 270px; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --warn: #e6b25c; --warn-soft: #3a2f1b; --ok: #5cc98b; --ok-soft: #1d3327;
+  --bad: #f08070; --bad-soft: #3d2320; --vio: #b79cf0; --vio-soft: #2c2440; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --warn: #e6b25c; --warn-soft: #3a2f1b; --ok: #5cc98b; --ok-soft: #1d3327;
+  --bad: #f08070; --bad-soft: #3d2320; --vio: #b79cf0; --vio-soft: #2c2440; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark; }
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.layout { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); }
+.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; border-right: 1px solid var(--border);
+  padding: 18px 10px 40px 16px; font-size: 13.2px; scrollbar-width: thin; }
+.sidebar .brand { font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 8px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur { background: var(--accent-soft); color: var(--accent); }
+main { max-width: 920px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 34px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 34px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover p { color: var(--muted); margin: 6px 0; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+h2 { font-size: 25px; margin: 64px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 36px 0 8px; }
+h4 { font-size: 16px; margin: 24px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; white-space: normal; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 6.2em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.note { border-left-color: var(--muted); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+@media (max-width: 900px) {
+  .layout { display: block; } .sidebar { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 27px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .theme-btn, .flow-hint { display: none !important; }
+  .layout { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  figure.flow, .callout, pre, table { break-inside: avoid; }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+/* ---------- React-Flow-style diagrams ---------- */
+/*FLOW_CSS*/
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar" aria-label="目录"><div class="brand">RSSHub + Folo 导读</div>
+<!--NAV-->
+</nav>
+<main>
+<header class="cover">
+  <div class="kicker">Source-level guide · RSSHub × Folo</div>
+  <h1>RSSHub + Folo：从原理到源码</h1>
+  <p>一份为“自己动手 contribute / 定制 RSS 阅读器”准备的导读：两个项目各自要解决什么问题、有哪些限制、架构如何拆分、组件之间怎样连接，以及开源许可证对你意味着什么。</p>
+  <p class="meta">RSSHub @ 8f4fd43 · Folo @ 158ecbe · 所有源码链接都固定在这两个 commit 上 · 2026-11</p>
+</header>
+<!--BODY-->
+</main>
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script>
+//FLOW_JS
+</script>
+<script>
+(function () {
+  var b = document.getElementById("theme-btn"), r = document.documentElement;
+  try { var s = localStorage.getItem("rss-guide-theme"); if (s) r.setAttribute("data-theme", s); } catch (e) {}
+  b.addEventListener("click", function () {
+    var dark = r.getAttribute("data-theme") ? r.getAttribute("data-theme") === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = dark ? "light" : "dark"; r.setAttribute("data-theme", next);
+    try { localStorage.setItem("rss-guide-theme", next); } catch (e) {}
+  });
+  var links = [].slice.call(document.querySelectorAll(".sidebar a"));
+  var heads = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); });
+  function onScroll() {
+    var cur = 0;
+    for (var i = 0; i < heads.length; i++) if (heads[i] && heads[i].getBoundingClientRect().top < 120) cur = i;
+    links.forEach(function (a, i) { a.classList.toggle("cur", i === cur); });
+  }
+  addEventListener("scroll", onScroll, { passive: true }); onScroll();
+})();
+</script>
+</body>
+</html>
