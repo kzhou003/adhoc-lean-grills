@@ -1,0 +1,12 @@
+{
+  "title": "pi-subagents 源码导读",
+  "kicker": "Source-level guide · tintinweb/pi-subagents",
+  "lede": "pi-subagents 把 Claude Code 风格的子 agent 和脚本化工作流带到 pi。这份导读讲清它怎么派生、排队、通知、隔离子 agent，工作流沙箱为什么这样设计，以及想贡献或定制时该看哪里。",
+  "brand": "pi-subagents 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"ps": {"repo": "tintinweb/pi-subagents", "sha": "50460b5df6934c4237983a504808a04ee0f8a0a0", "local": "~/development/pi-subagents-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}

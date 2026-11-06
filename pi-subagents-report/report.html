@@ -1,0 +1,1083 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-subagents 源码导读</title>
+<meta name="description" content="pi-subagents 把 Claude Code 风格的子 agent 和脚本化工作流带到 pi。这份导读讲清它怎么派生、排队、通知、隔离子 agent，工作流沙箱为什么这样设计，以及想贡献或定制时该看哪里。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:pi-subagents 源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">pi-subagents 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">它解决什么</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">总图</a>
+<a class="nav-l2" href="#s3">agent 注册表</a>
+<a class="nav-l3" href="#s3-1">职责</a>
+<a class="nav-l3" href="#s3-2">来源和优先级</a>
+<a class="nav-l2" href="#s4">生命周期管理</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l3" href="#s4-2">难点：两个并发池</a>
+<a class="nav-l3" href="#s4-3">一个精巧的细节</a>
+<a class="nav-l2" href="#s5">运行器：构造子会话</a>
+<a class="nav-l3" href="#s5-1">职责</a>
+<a class="nav-l3" href="#s5-2">难点</a>
+<a class="nav-l3" href="#s5-3">原理</a>
+<a class="nav-l3" href="#s5-4">工具和扩展的作用域</a>
+<a class="nav-l3" href="#s5-5">优雅的 turn 上限</a>
+<a class="nav-l3" href="#s5-6">入口不止一个</a>
+<a class="nav-l2" href="#s6">完成通知</a>
+<a class="nav-l3" href="#s6-1">难点</a>
+<a class="nav-l3" href="#s6-2">原理</a>
+<a class="nav-l2" href="#s7">隔离与嵌套</a>
+<a class="nav-l3" href="#s7-1">Worktree</a>
+<a class="nav-l3" href="#s7-2">嵌套</a>
+<a class="nav-l2" href="#s8">工作流</a>
+<a class="nav-l3" href="#s8-1">职责</a>
+<a class="nav-l3" href="#s8-2">两层边界</a>
+<a class="nav-l3" href="#s8-3">为什么不算安全边界</a>
+<a class="nav-l3" href="#s8-4">确定性和 journal</a>
+<a class="nav-l3" href="#s8-5">gate</a>
+<a class="nav-l3" href="#s8-6">meta</a>
+<a class="nav-l2" href="#s9">端到端：一次后台 Agent 调用</a>
+<a class="nav-l2" href="#s10">开源许可证</a>
+<a class="nav-l2" href="#s11">贡献与定制</a>
+<a class="nav-l3" href="#s11-1">开发环境</a>
+<a class="nav-l3" href="#s11-2">项目规则</a>
+<a class="nav-l3" href="#s11-3">适合入手的方向</a>
+<a class="nav-l3" href="#s11-4">定制路线</a>
+<a class="nav-l3" href="#s11-5">仓库里没有的东西</a>
+<a class="nav-l2" href="#s12">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · tintinweb/pi-subagents</div><h1>pi-subagents 源码导读</h1><p class="lede">pi-subagents 把 Claude Code 风格的子 agent 和脚本化工作流带到 pi。这份导读讲清它怎么派生、排队、通知、隔离子 agent，工作流沙箱为什么这样设计，以及想贡献或定制时该看哪里。</p><p class="meta">tintinweb/pi-subagents @ 50460b5</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给想读懂、贡献或基于 pi-subagents 做定制的工程师。读完你应该能说清：一次 <code>Agent</code> 工具调用怎么变成一个独立会话；完成通知为什么不会打断父 agent；工作流脚本为什么禁用 <code>Date.now()</code>；新功能该放在哪个文件。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：问题、目标、限制、总图。</li>
+<li><strong>agent 注册表</strong>：内置、自定义、包内 agent 怎么合并。</li>
+<li><strong>生命周期管理</strong>：两个并发池、排队、状态。</li>
+<li><strong>运行器</strong>：怎么构造一个隔离的子会话。</li>
+<li><strong>完成通知</strong>：outbox 和 join。</li>
+<li><strong>隔离与嵌套</strong>：worktree、嵌套 agent、作用域。</li>
+<li><strong>工作流</strong>：脚本沙箱、确定性、journal 重放、gate。</li>
+<li><strong>端到端</strong>：一次后台 <code>Agent</code> 调用。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>tintinweb/pi-subagents</code> @ <code>50460b5</code>（2026-11-04，版本 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/package.json#L3">0.23.1</a>）。需要 pi 1.1.0 以上。我没有运行过这个扩展，也没有跑过测试，内容来自阅读源码和文档。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">它解决什么</h3>
+<p><a href="https://pi.dev">pi</a> 是一个可扩展的编码 agent，但核心不带子 agent。这个扩展补上这一层，并且刻意和 Claude Code 保持一样的工具名、调用约定和 UI（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/CONTRIBUTING.md#L13">项目哲学</a>）。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>解决办法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>上下文污染</strong></td>
+<td>主 agent 自己探索代码，上下文很快耗尽</td>
+<td>子 agent 在独立会话里跑，只把结果带回来</td>
+</tr>
+<tr>
+<td><strong>串行等待</strong></td>
+<td>模型一次只能发一批工具调用</td>
+<td>后台 agent + 完成通知</td>
+</tr>
+<tr>
+<td><strong>动态扇出</strong></td>
+<td>工具调用批次不能循环，也不能根据运行时发现的列表分支</td>
+<td><code>SubagentWorkflow</code> 脚本</td>
+</tr>
+<tr>
+<td><strong>并行写冲突</strong></td>
+<td>多个 agent 改同一棵树会互相覆盖</td>
+<td>git worktree 隔离</td>
+</tr>
+<tr>
+<td><strong>验证靠嘴</strong></td>
+<td>“修好了”只是模型说的</td>
+<td>工作流的 <code>gate</code>：跑命令，失败就算 agent 失败</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>让子 agent 在 pi 里感觉是原生的，和 Claude Code 行为一致</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>后台/前台、恢复、steering、自定义 agent、工作流、调度、跨扩展 RPC</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>工作流单次最多 1000 个 agent（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/runtime.ts#L28">WORKFLOW_AGENT_CAP</a>）；TUI 不能被卡住</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>运行在 pi 进程内；依赖 pi 的会话、事件和工具 API；peer 依赖 <code>&gt;=1.1.0</code></td>
+</tr>
+<tr>
+<td><strong>安全边界</strong></td>
+<td>和运行 pi 的用户同一信任边界，<strong>不是沙箱</strong>（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/SECURITY.md#L6">SECURITY.md</a>）</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>独立 <code>AgentSession</code>；两个并发池；outbox；vm + worker；journal 重放</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>MIT</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">总图</h3>
+
+<figure class="flow"><div class="flow-head">扩展在 pi 里的位置<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;扩展在 pi 里的位置&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;pi&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;pi 主会话&quot;, &quot;s&quot;: &quot;模型 · 工具循环&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;idx&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;index.ts&quot;, &quot;s&quot;: &quot;工具 · 命令 · UI&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mgr&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;AgentManager&quot;, &quot;s&quot;: &quot;生命周期 · 队列&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;agent-runner&quot;, &quot;s&quot;: &quot;构造子会话&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sess&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;子 AgentSession&quot;, &quot;s&quot;: &quot;pi SDK&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ui&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;UI&quot;, &quot;s&quot;: &quot;widget · FleetView&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;agent 注册表&quot;, &quot;s&quot;: &quot;默认 + 自定义 + 包&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;wf&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;工作流运行时&quot;, &quot;s&quot;: &quot;worker + vm&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;box&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;CompletionOutbox&quot;, &quot;s&quot;: &quot;边界投递&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;pi&quot;, &quot;b&quot;: &quot;idx&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;idx&quot;, &quot;b&quot;: &quot;mgr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mgr&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;run&quot;, &quot;b&quot;: &quot;sess&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;idx:b&quot;, &quot;b&quot;: &quot;reg:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;wf:t&quot;, &quot;b&quot;: &quot;mgr:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sess:b&quot;, &quot;b&quot;: &quot;box:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;box:b&quot;, &quot;b&quot;: &quot;pi:b&quot;, &quot;t&quot;: &quot;通知&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;ui:t&quot;, &quot;b&quot;: &quot;pi:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>深色来自 pi，不在这个仓库里。所有东西都在<strong>同一个 Node 进程</strong>内运行，只有工作流脚本在 worker thread 里。文件地图见 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L1063">README 的 Architecture</a>。</figcaption></figure>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts">index.ts</a> 有 4370 行，是最大的文件，负责注册工具、命令、渲染器和 <code>/agents</code> 菜单，默认导出的函数就是扩展入口（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L309">入口</a>）。注册的 LLM 工具有 <code>Agent</code>、<code>get_subagent_result</code>、<code>steer_subagent</code> 和可选的 <code>SubagentWorkflow</code>。</p>
+<h2 id="s3">agent 注册表</h2>
+<h3 id="s3-1">职责</h3>
+<p>回答“<code>subagent_type: &quot;Explore&quot;</code> 到底是什么配置”。</p>
+<h3 id="s3-2">来源和优先级</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>位置</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内置</td>
+<td><code>general-purpose</code>、<code>Explore</code>、<code>Plan</code></td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/default-agents.ts">default-agents.ts</a></td>
+</tr>
+<tr>
+<td>项目</td>
+<td><code>.pi/agents/</code>、<code>.agents/agents/</code></td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/custom-agents.ts">custom-agents.ts</a></td>
+</tr>
+<tr>
+<td>全局</td>
+<td>用户目录</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/custom-agents.ts">custom-agents.ts</a></td>
+</tr>
+<tr>
+<td>pi 包</td>
+<td><code>package.json</code> 的 <code>pi.subagents</code></td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/package-resources.ts">package-resources.ts</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>统一入口是 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-types.ts">agent-types.ts</a>。agent 文件是带 YAML frontmatter 的 Markdown，字段见 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L361">Frontmatter Fields</a>。</p>
+<p>一个重要约定：<strong>frontmatter 是权威的</strong>。文件里写了 <code>model</code>、<code>thinking</code>、<code>max_turns</code>、<code>isolated</code> 等，调用方传的值就不生效（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L391">README</a>）。例外也写明了：<code>isolation</code> 在工作流路径上由脚本决定，这是为了和 Claude Code 一致。</p>
+<p>类型名大小写不敏感，但如果解析不到恰好一个启用的 agent，会回退或报错，不会悄悄选一个。</p>
+<p>包的声明有一个刻意的差异：pi 其他资源会扫描约定目录，子 agent <strong>必须按名字声明</strong>（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/packages.md#L13">packages.md</a>）。这样装一个包不会意外多出一堆 agent。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><p><code>isolated</code> 和 <code>isolation</code> 是两个字段。<code>isolated: true</code> 是“密封模式”：去掉扩展和技能。<code>isolation: worktree</code> 是文件系统隔离。名字相近，含义完全不同。</p>
+</div>
+<h2 id="s4">生命周期管理</h2>
+<h3 id="s4-1">职责</h3>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L381">AgentManager</a> 跟踪每个 agent 的记录，管理并发、排队、恢复和清理。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/types.ts#L168">AgentRecord</a> 是核心状态。</p>
+<h3 id="s4-2">难点：两个并发池</h3>
+<p>文件头的注释解释了设计理由，这段值得读（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L1">agent-manager.ts</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>池</th>
+<th>默认</th>
+<th>管谁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>后台</td>
+<td><code>maxConcurrent = 10</code></td>
+<td>detached 的 agent</td>
+</tr>
+<tr>
+<td>前台</td>
+<td><code>maxConcurrentForeground = 0</code>（不限）</td>
+<td>调用方阻塞等待的 agent</td>
+</tr>
+</tbody>
+</table></div>
+<p>为什么不是一个池？前台 agent 反正会阻塞父 agent，父 agent 本来也能自己干这个活。如果它占后台名额，满载的后台池就会饿死主会话。嵌套子 agent 和工作流 agent 都不占池：嵌套子 agent 排在等它的父 agent 后面会死锁，工作流有自己的上限（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L675">Concurrency</a>）。</p>
+<h3 id="s4-3">一个精巧的细节</h3>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L682">startAgent</a> 在<strong>第一个 await 之前</strong>就把状态设成 running 并占用名额。原因：创建 worktree 是异步的，而 <code>drainQueue</code> 是同步循环读计数器。如果 await 之后才加一，它会把队列里的 agent 全部启动。</p>
+<p>池也只解析一次并记在 <code>record.chargedPool</code>：用户可能在运行中改设置，settle 时重新计算会减错池，要么计数下溢，要么名额泄漏。这类注释是这个项目的特点，读它们比读代码本身更省时间。</p>
+
+<figure class="flow"><div class="flow-head">一个 agent 的状态变化<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一个 agent 的状态变化&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;queued&quot;, &quot;s&quot;: &quot;池满时排队&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;running&quot;, &quot;s&quot;: &quot;占用名额&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;结束&quot;, &quot;s&quot;: &quot;完成/出错/中止&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;w&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;worktree 收尾&quot;, &quot;s&quot;: &quot;提交到分支&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;n&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;通知 / 结果&quot;, &quot;s&quot;: &quot;outbox&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rs&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;resume&quot;, &quot;s&quot;: &quot;重新打开会话&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;st&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;steer&quot;, &quot;s&quot;: &quot;运行中插话&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;转后台&quot;, &quot;s&quot;: &quot;ctrl+b · 单向&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;w&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;w&quot;, &quot;b&quot;: &quot;n&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;n:b&quot;, &quot;b&quot;: &quot;rs:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;rs:t&quot;, &quot;b&quot;: &quot;s:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;st:t&quot;, &quot;b&quot;: &quot;r:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;bg:r&quot;, &quot;b&quot;: &quot;st:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 165.0}}"></div><figcaption>对应 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L1107">spawnAndWait</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L1179">sendToBackground</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L1198">resume</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L1446">steer</a>。转后台是单向的（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L113">README</a>）。</figcaption></figure>
+<p>被驱逐的 agent 还能恢复：结束时写一条 <code>subagents:record</code> 会话条目，<code>get_subagent_result</code> 和 resume 都能回退到它（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-record-entry.ts">agent-record-entry.ts</a>）。</p>
+<h2 id="s5">运行器：构造子会话</h2>
+<h3 id="s5-1">职责</h3>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts#L800">runAgent</a> 把“类型 + prompt + 选项”变成一个跑起来的 <code>AgentSession</code>，返回结果。</p>
+<h3 id="s5-2">难点</h3>
+<p>子会话要和主会话共用 pi 的机制，但配置必须独立。而且默认的 pi 行为会破坏这种独立：<code>AGENTS.md</code> 会被自动加到系统提示后面，这样 <code>prompt_mode: replace</code> 就失效了。</p>
+<h3 id="s5-3">原理</h3>
+<p><code>runAgent</code> 的主要步骤：</p>
+<ol>
+<li>解析工作目录：worktree 覆盖 &gt; 父 cwd。文件操作在 <code>effectiveCwd</code>，配置发现在 <code>configCwd</code>。</li>
+<li><code>isolated</code> 在这里解析，不靠调用方，因为 mention 和 RPC 不传这个值。</li>
+<li>预加载技能、处理 memory：有写工具就给读写记忆，否则给只读记忆。</li>
+<li><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/prompts.ts">prompts.ts</a> 构建系统提示。</li>
+<li>构造 <code>DefaultResourceLoader</code>，设 <code>noContextFiles: true</code>，手动转发 pi 内置扩展。</li>
+<li>继承父项目的信任决定，否则被拒绝信任的项目里，子 agent 会加载 <code>.pi</code> 扩展和 MCP 服务。</li>
+<li>运行，观察 turn，处理 max turns。</li>
+</ol>
+<p>第 6 点是一个安全相关的细节：<code>SettingsManager</code> 默认信任，所以必须显式传 <code>projectTrusted</code>（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts#L942">代码</a>）。</p>
+<p>下面这张图是一个子会话的组成。每一块的来源都不同，这也是 <code>runAgent</code> 这么长的原因。</p>
+
+<figure class="flow"><div class="flow-head">一个子会话由什么组成<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一个子会话由什么组成&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;agent 配置&quot;, &quot;s&quot;: &quot;frontmatter&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;记忆块&quot;, &quot;s&quot;: &quot;读写或只读&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sk&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;预加载技能&quot;, &quot;s&quot;: &quot;写进提示&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;系统提示&quot;, &quot;s&quot;: &quot;replace · append&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ld&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ResourceLoader&quot;, &quot;s&quot;: &quot;扩展过滤&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;set&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;SettingsManager&quot;, &quot;s&quot;: &quot;继承项目信任&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;se&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;AgentSession&quot;, &quot;s&quot;: &quot;pi SDK&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a:b&quot;, &quot;b&quot;: &quot;sp:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;sp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sk:b&quot;, &quot;b&quot;: &quot;sp:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sp:r&quot;, &quot;b&quot;: &quot;ld:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;set&quot;, &quot;b&quot;: &quot;ld&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ld&quot;, &quot;b&quot;: &quot;se&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 175.0}}"></div><figcaption>系统提示由 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/prompts.ts">prompts.ts</a> 构建。<code>replace</code> 模式下不继承 <code>AGENTS.md</code>，<code>append</code> 模式才把父提示嵌进来。</figcaption></figure>
+<h3 id="s5-4">工具和扩展的作用域</h3>
+<p>这里有三个独立的旋钮，容易混淆：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>控制什么</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extensions</code></td>
+<td><strong>加载</strong>哪些扩展</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts#L153">parseExtensionsSpec</a></td>
+</tr>
+<tr>
+<td><code>tools</code> 里的 <code>ext:</code></td>
+<td>扩展工具里<strong>暴露</strong>哪些给模型</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts#L192">parseExtSelectors</a></td>
+</tr>
+<tr>
+<td><code>disallowed_tools</code></td>
+<td>无论如何都<strong>拒绝</strong></td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L1050">Tool Denylist</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>源码注释特别提醒：排除的扩展工厂仍会执行一次，排除只是阻止绑定处理器和注册工具，<strong>它不是沙箱</strong>。</p>
+<h3 id="s5-5">优雅的 turn 上限</h3>
+<p>硬中止会留下半截输出。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts#L710">observeRun</a> 在接近上限时发一条“收尾”提示，再给 <code>graceTurns</code> 轮宽限（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L658">Graceful Max Turns</a>）。这样得到的是完整的部分结果。</p>
+<h3 id="s5-6">入口不止一个</h3>
+<p>派生 agent 有四条路：<code>Agent</code> 工具、<code>@handle</code> mention、工作流、跨扩展 RPC。<code>Agent</code> 工具和工作流直接调用 manager；mention 和 RPC 的参数不完全可信，要先过一道过滤。</p>
+
+<figure class="flow"><div class="flow-head">四条派生路径汇到同一处<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;四条派生路径汇到同一处&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Agent 工具&quot;, &quot;s&quot;: &quot;模型调用&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;@handle mention&quot;, &quot;s&quot;: &quot;用户输入&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;跨扩展 RPC&quot;, &quot;s&quot;: &quot;pi.events&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;工作流 agent()&quot;, &quot;s&quot;: &quot;脚本调用&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;top&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;spawnTopLevel&quot;, &quot;s&quot;: &quot;剥掉内部字段&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;res&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;spawnResolved&quot;, &quot;s&quot;: &quot;解析后派生&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mgr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;AgentManager&quot;, &quot;s&quot;: &quot;统一生命周期&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a:r&quot;, &quot;b&quot;: &quot;mgr:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b:r&quot;, &quot;b&quot;: &quot;top:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c:r&quot;, &quot;b&quot;: &quot;top:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d:r&quot;, &quot;b&quot;: &quot;mgr:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;top&quot;, &quot;b&quot;: &quot;res&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;res&quot;, &quot;b&quot;: &quot;mgr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 180.0}}"></div><figcaption><code>Agent</code> 工具在 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L2319">index.ts</a> 调 <code>manager.spawn</code>，工作流在 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/host.ts">host.ts</a> 调 <code>spawnAndWait</code>。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L737">spawnTopLevel</a> 会删除 <code>parentAgentId</code>、<code>workflowId</code>、<code>resumeSessionFile</code>、<code>rootSessionId</code>、<code>blocking</code> 等内部字段。</figcaption></figure>
+<p>删字段是有安全考虑的：<code>rootSessionId</code> 决定转录目录，伪造就是路径穿越；<code>resumeSessionFile</code> 决定打开哪个文件当对话重放。注释把每个字段的风险都写清了。唯一的例外是恢复 mention：它走 <code>spawnResolved</code>，因为那些值来自扩展自己写的记录（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L1038">代码</a>）。</p>
+<h2 id="s6">完成通知</h2>
+<h3 id="s6-1">难点</h3>
+<p>后台 agent 完成时，父 agent 可能正在跑工具、空闲，或刚被 Esc 中止。pi 的 steering 队列在默认的 one-at-a-time 模式下会把多条消息拆成多次模型调用，很贵。</p>
+<h3 id="s6-2">原理</h3>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/completion-outbox.ts#L41">CompletionOutbox</a> 把通知攒起来，在边界上一次发出：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>父 agent 状态</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>忙</td>
+<td>留到 <code>turn_end</code>，这时工具批次已结束，下一次模型调用还没开始</td>
+</tr>
+<tr>
+<td>空闲</td>
+<td>短暂等 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/completion-outbox.ts#L24">200ms</a>，让接近同时完成的合并到一轮</td>
+</tr>
+<tr>
+<td>被中止或失败</td>
+<td>继续持有，等运行结束再发，因为 pi 在 Esc 时会清空自己的队列</td>
+</tr>
+</tbody>
+</table></div>
+<p>另外两个细节：读取结果会取消对应通知（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/completion-outbox.ts#L68">cancel</a>），不会既读到又被通知；同一 agent 的新完成替换旧通知。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 前台的信件格</div><ul>
+<li><strong>信件</strong> = 子 agent 的完成通知。</li>
+<li><strong>你</strong> = 父 agent，开会时不被打断。</li>
+<li><strong>信件格</strong> = outbox：会议结束（<code>turn_end</code>）一起拿给你。</li>
+<li><strong>你已经主动去取了</strong> = <code>get_subagent_result</code>：这封信就从格子里撤掉。</li>
+</ul>
+<p>你不在开会时，前台也会等 200ms，看看有没有紧跟着的第二封，好一起送上来。</p>
+</div>
+<p>join 模式在这之上：<code>smart</code> 逐个通知；<code>group</code> 把同一轮派生的 agent 合成一条，第一个完成后 30 秒超时（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/group-join.ts#L28">GroupJoinManager</a>）。</p>
+<h2 id="s7">隔离与嵌套</h2>
+<h3 id="s7-1">Worktree</h3>
+<p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/worktree.ts">worktree.ts</a> 创建临时 git worktree。没有改动就清理，有改动就提交到分支，把分支名返回。所有 git 调用都走异步的 <code>pi.exec</code>，否则并发隔离的 agent 会卡住 TUI 事件循环。</p>
+<p>失败时<strong>不回退</strong>：不是 git 仓库或没有提交时直接报错，绝不悄悄在主树上跑（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts#L760">startAgent</a>）。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><p>worktree agent 结束后改动在分支上，不在主树。所以串行的“修复再验证”不要用隔离，否则验证的是没修过的树。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/examples/workflows/gated-fix.js">gated-fix.js</a> 的文件头专门讲了这个坑。</p>
+</div>
+<h3 id="s7-2">嵌套</h3>
+<p>默认关闭。agent 设置 <code>allowed_subagents</code> 才会得到作用域内的 <code>Agent</code> 等工具（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/nested-tools.ts">nested-tools.ts</a>）。深度上限 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/nested-tools.ts#L45">maxSubagentDepth</a> 默认 2：主会话是 0，子 agent 是 1，再下一层是 2。</p>
+<h2 id="s8">工作流</h2>
+<h3 id="s8-1">职责</h3>
+<p><code>SubagentWorkflow</code> 让模型写一段 JavaScript 脚本来编排 agent。<strong>你不写脚本，模型写</strong>（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/workflows.md#L5">workflows.md</a>）。脚本可用 <code>agent()</code>、<code>parallel()</code>、<code>pipeline()</code>、<code>phase()</code>、<code>log()</code>。</p>
+<pre><code class="language-js">export const meta = { name: 'gated-fix', description: '…', phases: [{ title: 'Fix' }] }
+
+phase('Fix')
+let fixed = await agent(task, { label: 'fix', gate: testCommand })
+if (fixed === null) {
+  fixed = await agent(`${testCommand} is still failing…`, { label: 'fix', resume: 'fix' })
+}
+</code></pre>
+<p>简化自 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/examples/workflows/gated-fix.js">gated-fix.js</a>。</p>
+<h3 id="s8-2">两层边界</h3>
+<p>这是全项目最有意思的设计，<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/worker-source.ts">worker-source.ts</a> 的文件头讲得很透。</p>
+
+<figure class="flow"><div class="flow-head">两层边界，目的不同<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;两层边界，目的不同&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;host thread&quot;, &quot;s&quot;: &quot;AgentManager · 上限&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;w&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;worker thread&quot;, &quot;s&quot;: &quot;可被 terminate&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;vm context&quot;, &quot;s&quot;: &quot;workflow 脚本&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;spawn 真实 agent&quot;, &quot;s&quot;: &quot;唯一的 agent 通道&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;w&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;w&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 260.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 215.0}}"></div><figcaption>worker 那层是为了<strong>能杀掉</strong>：<code>vm</code> 超时对已经进入 <code>await</code> 的脚本无效，<code>worker.terminate()</code> 可以。vm 那层是为了<strong>确定性和防手滑</strong>，不是安全边界。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/runtime.ts">runtime.ts</a> 说脚本唯一的路径就是 <code>call</code> 消息，所以上限才绕不过去。</figcaption></figure>
+<h3 id="s8-3">为什么不算安全边界</h3>
+<p>文件头直说：注入的全局函数是 host 闭包，<code>agent.constructor</code> 还是 host 的 <code>Function</code>。真正承重的防线是 <code>codeGeneration: { strings: false }</code>，它让 <code>Function(&quot;…&quot;)</code> 和 <code>eval</code> 抛错。作者明确写“这是确定性边界，不是针对恶意脚本的安全边界”。</p>
+<h3 id="s8-4">确定性和 journal</h3>
+<p>工作流可以恢复。恢复靠 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/journal.ts">journal</a> <strong>按前缀重放</strong>：已完成的调用直接返回记录的结果，不重新派生 agent。如果脚本读了时钟或随机数，第二次运行的前缀就对不上，重放会悄悄偏离。</p>
+<p>所以 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/worker-source.ts#L55">DETERMINISM_PRELUDE</a> 把 <code>Date.now</code>、<code>Math.random</code> 改成抛错，并用词法遮蔽替换 <code>Date</code>。错误信息直接告诉作者：时间戳通过 <code>args</code> 传入。</p>
+<p>prelude 必须写成<strong>一行</strong>：脚本从第 2 行开始编译，host 传 <code>lineOffset: -1</code>，多一个换行所有栈帧行号都会错。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 中断后恢复一个工作流</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;脚本重新执行&quot;, &quot;s&quot;: &quot;从头开始&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;第 N 次 agent()&quot;, &quot;s&quot;: &quot;算 journal key&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;命中 journal&quot;, &quot;s&quot;: &quot;返回旧结果&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;未命中&quot;, &quot;s&quot;: &quot;真的派生&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写入 journal&quot;, &quot;s&quot;: &quot;可再次恢复&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 165.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a"><div class="step-title">1. 重新运行</div><p>带 <code>resumeFromRunId</code> 再调用工具，脚本从第一行重新执行。</p>
+</div><div class="step" data-hl="a,b"><div class="step-title">2. 计算 key</div><p>每次 <code>agent()</code> 由 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/journal.ts#L93">journalKey</a> 算出 key，所以调用顺序和参数决定匹配。</p>
+</div><div class="step" data-hl="b,c"><div class="step-title">3. 重放</div><p>前缀里的调用立即返回记录的结果，不花 token。</p>
+</div><div class="step" data-hl="c,d"><div class="step-title">4. 接着跑</div><p>第一个没命中的调用开始真正派生 agent。</p>
+</div><div class="step" data-hl="d,e"><div class="step-title">5. 记录</div><p>每个调用完成时追加写入，所以这次运行也能再次恢复。</p>
+</div></div></div>
+
+<div class="callout analogy"><div class="callout-title">类比 · 游戏的存档点</div><ul>
+<li><strong>存档</strong> = journal 里记录的每次 <code>agent()</code> 结果。</li>
+<li><strong>读档</strong> = <code>resumeFromRunId</code>：从头跑脚本，但已存档的关卡直接跳过。</li>
+<li><strong>关卡必须和上次一样</strong> = 确定性：如果地图是随机生成的（<code>Math.random</code>），存档就对不上。</li>
+</ul>
+<p>禁用时钟和随机数不是洁癖，是读档的前提。</p>
+</div>
+<h3 id="s8-5">gate</h3>
+<p><code>gate</code> 是一条 shell 命令，agent 结束后运行，非零退出就算失败，<code>agent()</code> 返回 <code>null</code>（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/runtime.ts#L483">applyGate 注释</a>）。这是“别问模型，跑命令”的落地。worktree agent 的 gate 要在它改过的树上跑，所以交给 host 在 settle 里执行。<code>gate</code> 不能和 <code>resume</code> 同时用。</p>
+<h3 id="s8-6">meta</h3>
+<p><code>export const meta</code> 在 <code>vm</code> 里是语法错误，而 UI 又要在执行前知道阶段。<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/meta.ts">meta.ts</a> 不引入 acorn，而是自己扫描到匹配的括号，在空 vm 里求值这个片段。纯字面量没有东西可调用，所以是安全的。扫描器要识别字符串、注释和正则，因为 <code>detail</code> 文本里经常有花括号。</p>
+<h2 id="s9">端到端：一次后台 Agent 调用</h2>
+<p>假设模型调用 <code>Agent({ subagent_type: &quot;Explore&quot;, prompt: &quot;找认证代码&quot;, run_in_background: true })</code>。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 后台 Agent 调用</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Agent 工具&quot;, &quot;s&quot;: &quot;index.ts&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;解析配置&quot;, &quot;s&quot;: &quot;类型 · 模型 · 范围&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;manager.spawn&quot;, &quot;s&quot;: &quot;入池或排队&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;startAgent&quot;, &quot;s&quot;: &quot;占名额 · worktree&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ra&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;runAgent&quot;, &quot;s&quot;: &quot;构造会话&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;se&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;子会话运行&quot;, &quot;s&quot;: &quot;observeRun&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fin&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;收尾&quot;, &quot;s&quot;: &quot;settle · 记录&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ob&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;outbox&quot;, &quot;s&quot;: &quot;等边界&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;par&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;父 agent&quot;, &quot;s&quot;: &quot;steering 消息&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;get&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;读取结果&quot;, &quot;s&quot;: &quot;get_subagent_result&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;ra&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ra&quot;, &quot;b&quot;: &quot;se&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;se&quot;, &quot;b&quot;: &quot;fin&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fin&quot;, &quot;b&quot;: &quot;ob&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ob&quot;, &quot;b&quot;: &quot;par&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;par&quot;, &quot;b&quot;: &quot;get&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="t"><div class="step-title">1. 工具调用</div><p><code>Agent</code> 工具在 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L2585">index.ts</a> 注册。</p>
+</div><div class="step" data-hl="t,r"><div class="step-title">2. 解析</div><p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/invocation-config.ts#L96">resolveAgentInvocationConfig</a> 合并参数和 frontmatter；<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/model-resolver.ts">model-resolver.ts</a> 解析模型；开了 model scope 就检查白名单。</p>
+</div><div class="step" data-hl="r,m"><div class="step-title">3. 派生</div><p><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts#L2319">manager.spawn</a> 登记记录，池满就排队，工具立即返回 ID。</p>
+</div><div class="step" data-hl="m,s"><div class="step-title">4. 启动</div><p><code>startAgent</code> 同步占用名额，再创建 worktree（如果需要）。</p>
+</div><div class="step" data-hl="s,ra"><div class="step-title">5. 构造会话</div><p><code>runAgent</code> 构建提示、loader、设置，创建 <code>AgentSession</code>。</p>
+</div><div class="step" data-hl="ra,se"><div class="step-title">6. 运行</div><p>子会话跑完，转录同时写到输出文件（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/output-file.ts">output-file.ts</a>）。</p>
+</div><div class="step" data-hl="se,fin"><div class="step-title">7. 收尾</div><p>释放名额、收尾 worktree、写记录条目，再 <code>drainQueue</code>。</p>
+</div><div class="step" data-hl="fin,ob,par"><div class="step-title">8. 投递</div><p>通知进 outbox，在父 agent 的下一个边界作为一条 steering 消息送达，带结果预览。</p>
+</div><div class="step" data-hl="par,get"><div class="step-title">9. 取全文</div><p>需要完整输出时调用 <code>get_subagent_result</code>，这同时取消尚未送达的通知。</p>
+</div></div></div>
+<h2 id="s10">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全部代码</td>
+<td>MIT，Copyright 2026 tintinweb</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/package.json#L6">package.json</a></td>
+</tr>
+<tr>
+<td>运行时依赖</td>
+<td><code>croner</code>、<code>nanoid</code></td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/package.json#L32">dependencies</a>，各自的许可证请自行核对</td>
+</tr>
+<tr>
+<td>pi 本体</td>
+<td>peer 依赖，不随包发布</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/package.json#L26">peerDependencies</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>MIT 的要求只有一条：分发时保留版权和许可声明。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>提 PR</td>
+<td>允许</td>
+<td>先开 issue；没有看到 CLA 要求</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留 LICENSE</td>
+</tr>
+<tr>
+<td>发 npm 包</td>
+<td>允许</td>
+<td>保留 LICENSE，换包名</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>MIT 无网络条款</td>
+</tr>
+<tr>
+<td>闭源复用</td>
+<td>允许</td>
+<td>保留声明</td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：GitHub API 显示 <code>LICENSE</code> 只有 2026-03-05 的初始提交一次，一直是 MIT。<code>media/</code> 里的 logo 没有单独声明，商用前可以问作者（这是我的提醒，仓库没有写）。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解。</p>
+</div>
+<h2 id="s11">贡献与定制</h2>
+<h3 id="s11-1">开发环境</h3>
+<pre><code class="language-bash">git clone https://github.com/tintinweb/pi-subagents
+cd pi-subagents
+npm install
+npm run check          # lint + typecheck + test
+pi -e ./src/index.ts   # 加载本地扩展
+</code></pre>
+<p>命令来自 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/AGENTS.md#L56">AGENTS.md</a> 和 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/README.md#L85">README</a>。</p>
+<h3 id="s11-2">项目规则</h3>
+<ul>
+<li><strong>唯一规则：你必须理解自己的代码</strong>，否则 PR 会被关闭（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/CONTRIBUTING.md#L19">The One Rule</a>）。</li>
+<li>超过小修的改动先开 issue。</li>
+<li>不要编辑 <code>CHANGELOG.md</code>，由维护者写。</li>
+<li>改用户可见的行为要更新 README。</li>
+<li>引用代码用符号，不用行号（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/AGENTS.md#L54">文档规则</a>）。</li>
+<li>不用内联 import，不用 <code>any</code>，top-level imports only。</li>
+<li>PR 标题用 conventional commit，描述分 Summary、What changed、Performance、Testing 等节（<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/AGENTS.md#L86">Filing PRs</a>）。</li>
+<li>维护者对外部 PR 的审查规则很严：先当作可能恶意来检查。</li>
+</ul>
+<h3 id="s11-3">适合入手的方向</h3>
+<ul>
+<li>补 <code>test/</code> 里的边界用例，这个项目有 110 多个测试文件。</li>
+<li><a class="src" href="https://github.com/tintinweb/pi-subagents/tree/50460b5df6934c4237983a504808a04ee0f8a0a0/examples/workflows">examples/workflows</a> 加新配方，它们被 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/test/workflow-examples.test.ts">测试</a> 执行。</li>
+<li>改善文档。</li>
+</ul>
+<p>需要避开：和 Claude Code 不一致的工具名和参数；范围之外的新功能。</p>
+<h3 id="s11-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">想让它按我的方式工作<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;想让它按我的方式工作&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;要改什么？&quot;, &quot;s&quot;: &quot;从最轻的开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写 agent 文件&quot;, &quot;s&quot;: &quot;.pi/agents/*.md&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;写工作流脚本&quot;, &quot;s&quot;: &quot;保存为命名工作流&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;写 pi 扩展&quot;, &quot;s&quot;: &quot;RPC + 事件&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;fork&quot;, &quot;s&quot;: &quot;改 src&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>其他扩展通过进程内事件总线调用，见 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/rpc.md">rpc.md</a> 和 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/cross-extension-rpc.ts">cross-extension-rpc.ts</a>。发包见 <a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/packages.md">packages.md</a>。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>代价</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>agent 文件</td>
+<td>很低</td>
+<td>专用角色、模型、工具集</td>
+</tr>
+<tr>
+<td>工作流</td>
+<td>低</td>
+<td>可复用的编排流程</td>
+</tr>
+<tr>
+<td>发 pi 包</td>
+<td>低</td>
+<td>团队共享 agent 和工作流</td>
+</tr>
+<tr>
+<td>写扩展调 RPC</td>
+<td>中</td>
+<td>和其他功能集成</td>
+</tr>
+<tr>
+<td>fork</td>
+<td>高</td>
+<td>改核心行为，要跟随 pi 的 API 变化</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s11-5">仓库里没有的东西</h3>
+<ul>
+<li><strong>pi 本体</strong>：<code>@earendil-works/pi-coding-agent</code>、<code>pi-ai</code>、<code>pi-tui</code> 都是外部包。<code>AgentSession</code> 的内部行为要看它们的源码。</li>
+<li><strong>沙箱</strong>：子 agent 拥有用户权限。需要隔离就放进容器或 VM，SECURITY.md 说得很明确。</li>
+<li><strong>防提示注入</strong>：SECURITY.md 明说 <code>AGENTS.md</code>、agent 文件都可以注入，且无法防御。只在可信仓库里使用。</li>
+</ul>
+<h2 id="s12">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入口</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/index.ts">index.ts</a></td>
+</tr>
+<tr>
+<td>类型</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/types.ts">types.ts</a></td>
+</tr>
+<tr>
+<td>生命周期</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-manager.ts">agent-manager.ts</a></td>
+</tr>
+<tr>
+<td>运行器</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-runner.ts">agent-runner.ts</a></td>
+</tr>
+<tr>
+<td>通知</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/completion-outbox.ts">completion-outbox.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/group-join.ts">group-join.ts</a></td>
+</tr>
+<tr>
+<td>注册表</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/agent-types.ts">agent-types.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/custom-agents.ts">custom-agents.ts</a></td>
+</tr>
+<tr>
+<td>隔离</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/worktree.ts">worktree.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/nested-tools.ts">nested-tools.ts</a></td>
+</tr>
+<tr>
+<td>调度</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/schedule.ts">schedule.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/schedule-store.ts">schedule-store.ts</a></td>
+</tr>
+<tr>
+<td>记忆</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/memory.ts">memory.ts</a></td>
+</tr>
+<tr>
+<td>工作流</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/runtime.ts">runtime.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/worker-source.ts">worker-source.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/meta.ts">meta.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/workflow/journal.ts">journal.ts</a></td>
+</tr>
+<tr>
+<td>UI</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/ui/agent-widget.ts">agent-widget.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/ui/fleet-list.ts">fleet-list.ts</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/ui/conversation-viewer.ts">conversation-viewer.ts</a></td>
+</tr>
+<tr>
+<td>设置</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/src/settings.ts">settings.ts</a></td>
+</tr>
+<tr>
+<td>文档</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/workflows.md">workflows.md</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/rpc.md">rpc.md</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/docs/packages.md">packages.md</a></td>
+</tr>
+<tr>
+<td>规则</td>
+<td><a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/AGENTS.md">AGENTS.md</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/CONTRIBUTING.md">CONTRIBUTING.md</a>、<a class="src" href="https://github.com/tintinweb/pi-subagents/blob/50460b5df6934c4237983a504808a04ee0f8a0a0/SECURITY.md">SECURITY.md</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

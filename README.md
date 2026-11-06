@@ -13,6 +13,7 @@
 | `opendirector-report/` | OpenDirector 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/opendirector-report/report.html) |
 | `flashinfer-report/` | FlashInfer 与 CAKE 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/flashinfer-report/report.html) |
 | `tirx-report/` | Apache TVM TIRx 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/tirx-report/report.html) |
+| `pi-subagents-report/` | pi-subagents 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/pi-subagents-report/report.html) |
 
 ## 添加新笔记
 
