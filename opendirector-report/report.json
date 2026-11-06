@@ -1,0 +1,14 @@
+{
+  "title": "OpenDirector：从原理到源码",
+  "kicker": "Source-level guide · OpenDirector",
+  "lede": "一份给想贡献或定制 OpenDirector 的工程师的导读：这个本地 AI 视频工作台要解决什么问题，用户和 Agent 怎样共用同一个工程，文件存储怎样做到崩溃可恢复，付费生成任务怎样避免重复提交，以及代码该从哪里读起。",
+  "brand": "OpenDirector 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {
+    "od": {"repo": "kzhou003/OpenDirector", "sha": "4c05ef3d1198c6135362f0a39a4a961af851df1b", "local": "~/development/opendirector-report/src/OpenDirector"}
+  },
+  "quality": {"flows": 10, "analogies": 3, "links": 90}
+}

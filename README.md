@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `rss-guide/` | RSSHub + Folo 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/rss-guide/rss-guide.html) |
 | `luminal-report/` | Luminal 拆解 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/luminal-report/luminal_report.html) |
+| `opendirector-report/` | OpenDirector 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/opendirector-report/report.html) |
 
 ## 添加新笔记
 
