@@ -1,0 +1,1128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>egglog 源码导读</title>
+<meta name="description" content="egglog 把等式饱和和 Datalog 合成一门语言。这份导读讲清一条 rewrite 怎么一路变成 Free Join 查询，union-find 和 rebuild 怎么配合，半朴素求值怎么省掉重复工作，以及想贡献或嵌入它时要知道什么。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:egglog 源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">egglog 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">等式饱和和 Datalog 为什么要合在一起</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">crate 分层</a>
+<a class="nav-l2" href="#s3">前端：从文本到 Core IR</a>
+<a class="nav-l3" href="#s3-1">主要路径</a>
+<a class="nav-l3" href="#s3-2">Core IR</a>
+<a class="nav-l3" href="#s3-3">函数即表</a>
+<a class="nav-l2" href="#s4">桥接层：e-graph 语义</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l2" href="#s5">union-find 与 rebuild</a>
+<a class="nav-l3" href="#s5-1">问题</a>
+<a class="nav-l3" href="#s5-2">union-find 本身</a>
+<a class="nav-l3" href="#s5-3">rebuild</a>
+<a class="nav-l2" href="#s6">半朴素求值</a>
+<a class="nav-l3" href="#s6-1">问题</a>
+<a class="nav-l3" href="#s6-2">原理</a>
+<a class="nav-l2" href="#s7">查询引擎：core-relations</a>
+<a class="nav-l3" href="#s7-1">职责</a>
+<a class="nav-l3" href="#s7-2">查询规划</a>
+<a class="nav-l3" href="#s7-3">动作</a>
+<a class="nav-l2" href="#s8">提取与证明</a>
+<a class="nav-l3" href="#s8-1">提取</a>
+<a class="nav-l3" href="#s8-2">证明</a>
+<a class="nav-l2" href="#s9">调度与并行</a>
+<a class="nav-l3" href="#s9-1">调度</a>
+<a class="nav-l3" href="#s9-2">并行</a>
+<a class="nav-l2" href="#s10">端到端：一条 rewrite</a>
+<a class="nav-l2" href="#s11">开源许可证</a>
+<a class="nav-l2" href="#s12">贡献与定制</a>
+<a class="nav-l3" href="#s12-1">开发环境</a>
+<a class="nav-l3" href="#s12-2">项目规则</a>
+<a class="nav-l3" href="#s12-3">适合入手的方向</a>
+<a class="nav-l3" href="#s12-4">扩展点</a>
+<a class="nav-l3" href="#s12-5">定制路线</a>
+<a class="nav-l3" href="#s12-6">仓库里没有的东西</a>
+<a class="nav-l2" href="#s13">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · egraphs-good/egglog</div><h1>egglog 源码导读</h1><p class="lede">egglog 把等式饱和和 Datalog 合成一门语言。这份导读讲清一条 rewrite 怎么一路变成 Free Join 查询，union-find 和 rebuild 怎么配合，半朴素求值怎么省掉重复工作，以及想贡献或嵌入它时要知道什么。</p><p class="meta">egraphs-good/egglog @ 6c3a0c9</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给有编译器或数据库背景、第一次读 egglog 源码的工程师。读完你应该能说清：一条 <code>rewrite</code> 怎么变成数据库查询；为什么 e-graph 可以看成一个带 union-find 的数据库；rebuild 和半朴素求值各解决什么；新 sort、新原语、新调度器该写在哪。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：问题、目标、三层 crate 结构。</li>
+<li><strong>前端</strong>：解析、去糖、类型检查、Core IR。</li>
+<li><strong>桥接层</strong>：把 e-graph 语义编码到关系上。</li>
+<li><strong>union-find 与 rebuild</strong>：等价关系怎么维护。</li>
+<li><strong>半朴素求值</strong>：只处理新数据。</li>
+<li><strong>查询引擎</strong>：core-relations、树分解、Free Join。</li>
+<li><strong>提取与证明</strong>。</li>
+<li><strong>调度与并行</strong>。</li>
+<li><strong>端到端</strong>：一个 rewrite 的完整一轮。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>egraphs-good/egglog</code> @ <code>6c3a0c9</code>（2026-11-01），版本 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/Cargo.toml#L15">3.0.0</a>。我没有运行过这份代码，内容来自阅读源码和注释。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">等式饱和和 Datalog 为什么要合在一起</h3>
+<p><strong>等式饱和</strong>用 e-graph 同时表示大量等价程序：不断应用重写规则，但不删除旧项，最后再提取最好的一个。这避开了重写顺序问题。<strong>Datalog</strong> 擅长基于规则的程序分析，增量求值和查询优化都很成熟。</p>
+<p>两者各有缺口：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>传统 e-graph 的问题</th>
+<th>Datalog 的问题</th>
+<th>egglog 的回答</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>模式匹配</strong></td>
+<td>逐个 e-node 搜索，慢</td>
+<td>用关系 join，快</td>
+<td>把 e-matching 变成关系查询</td>
+</tr>
+<tr>
+<td><strong>增量</strong></td>
+<td>每轮重新匹配全部</td>
+<td>半朴素求值</td>
+<td>用时间戳实现半朴素</td>
+</tr>
+<tr>
+<td><strong>等价</strong></td>
+<td>内建</td>
+<td>没有，要手写规则</td>
+<td>内建 union-find + 重建</td>
+</tr>
+<tr>
+<td><strong>分析</strong></td>
+<td>需要定制</td>
+<td>规则就是分析</td>
+<td>函数、lattice merge</td>
+</tr>
+</tbody>
+</table></div>
+<p><a href="https://github.com/egraphs-good/egglog">README</a> 称它为“下一代等式饱和引擎”。理论基础是论文 <em>Better Together: Unifying Datalog and Equality Saturation</em>，见 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CITATION.bib">CITATION.bib</a>。</p>
+<p>项目的一句话定义来自 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CLAUDE.md#L3">CLAUDE.md</a>：<strong>可以把 egglog 看成 Datalog 加上一个 union-find。</strong></p>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>用一个 Datalog 风格的语言同时做程序优化和程序分析</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>规则、函数、sort、调度、提取、证明；可作 Rust 库、CLI、WASM 使用</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>数据库规模随饱和爆炸增长，查询计划必须好</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>要支持单线程和并行；要能编译到 WASM；Rust 2024 edition</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>时间戳半朴素、Free Join、树分解、原地 union-find 表、term encoding</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>MIT</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">crate 分层</h3>
+
+<figure class="flow"><div class="flow-head">从语言到数据库的四层<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从语言到数据库的四层&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;prog&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;.egg 程序&quot;, &quot;s&quot;: &quot;或 Rust API&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;egglog&quot;, &quot;s&quot;: &quot;解析 · 类型 · 去糖&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;br&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;egglog-bridge&quot;, &quot;s&quot;: &quot;e-graph 语义&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;core-relations&quot;, &quot;s&quot;: &quot;数据库 · 查询&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;uf&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;union-find&quot;, &quot;s&quot;: &quot;串行 + 并发&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cc&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;concurrency&quot;, &quot;s&quot;: &quot;线程池 · 原语&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ast&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;egglog-ast&quot;, &quot;s&quot;: &quot;通用 AST&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;id&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;numeric-id&quot;, &quot;s&quot;: &quot;稠密 ID 容器&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;prog&quot;, &quot;b&quot;: &quot;eg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;eg&quot;, &quot;b&quot;: &quot;br&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;br&quot;, &quot;b&quot;: &quot;cr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cr&quot;, &quot;b&quot;: &quot;uf&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cr&quot;, &quot;b&quot;: &quot;id&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cr:b&quot;, &quot;b&quot;: &quot;cc:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ast:t&quot;, &quot;b&quot;: &quot;eg:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>分工见 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CLAUDE.md#L6">Project structure</a>。注意 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L1">bridge 的文件头</a> 的说法：它主要做“去糖”，不实现 join 或 union-find 算法。workspace 成员见 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/Cargo.toml#L1">Cargo.toml</a>。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>crate</th>
+<th>职责</th>
+<th>入口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>egglog</code></td>
+<td>语言前端、类型检查、证明、提取、调度</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs">src/lib.rs</a></td>
+</tr>
+<tr>
+<td><code>egglog-bridge</code></td>
+<td>半朴素、默认值、merge 函数</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs">lib.rs</a></td>
+</tr>
+<tr>
+<td><code>core-relations</code></td>
+<td>表、索引、Free Join、动作 VM</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/lib.rs">lib.rs</a></td>
+</tr>
+<tr>
+<td><code>union-find</code></td>
+<td>串行和并发 union-find</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/union-find/src/lib.rs">lib.rs</a></td>
+</tr>
+<tr>
+<td><code>concurrency</code></td>
+<td>线程池和并发结构</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/concurrency/src/lib.rs">lib.rs</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s3">前端：从文本到 Core IR</h2>
+<h3 id="s3-1">主要路径</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L2253">parse_and_run_program</a> 解析后交给 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L2220">run_program</a>，再进入 <code>process_program_internal</code>。它<strong>逐条命令</strong>处理：</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一条命令的处理流程</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;用户宏展开&quot;, &quot;s&quot;: &quot;可读类型信息&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;desugar&quot;, &quot;s&quot;: &quot;规约到 NCommand&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;typecheck&quot;, &quot;s&quot;: &quot;得到 Resolved&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;term encoding&quot;, &quot;s&quot;: &quot;证明模式才走&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;run_command&quot;, &quot;s&quot;: &quot;执行&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 165.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a"><div class="step-title">1. 宏展开</div><p>先做用户提供的宏展开。它按命令逐条进行，所以后面的宏能依赖前面命令产生的类型信息（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L2151">代码</a>）。</p>
+</div><div class="step" data-hl="a,b"><div class="step-title">2. 去糖</div><p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/ast/desugar.rs#L7">desugar_command</a> 把 <code>rewrite</code>、<code>birewrite</code>、<code>datatype</code>、<code>relation</code> 等转成更小的核心命令。比如 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/ast/desugar.rs#L351">desugar_rewrite</a> 把重写变成一条规则。</p>
+</div><div class="step" data-hl="b,c"><div class="step-title">3. 类型检查</div><p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/typechecking.rs">typechecking.rs</a> 用 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/constraint.rs">constraint.rs</a> 的约束求解来确定类型，产出解析后的命令。</p>
+</div><div class="step" data-hl="c,d"><div class="step-title">4. 证明编码</div><p>只有开启 term encoding 时才走这一步：<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1375">resolve_command</a> 去掉全局变量，再由 <code>ProofInstrumentor</code> 重写程序，然后再次去糖、类型检查。</p>
+</div><div class="step" data-hl="d,e"><div class="step-title">5. 执行</div><p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1674">run_command</a> 按命令类型分发。遇到规则就编译，遇到 <code>run</code> 就运行。</p>
+</div></div></div>
+<p>错误语义有个明确约定：<code>run_program</code> 的文档说 egglog 错误<strong>不是事务性的</strong>，失败前完成的效果都保留；规则动作出错后，一次成功的恢复 rebuild 让数据库重新规范且可用（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L2220">文档注释</a>）。</p>
+<h3 id="s3-2">Core IR</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs">core.rs</a> 文件头讲清了这一层的定位：<strong>规则体是合取查询，规则头是类似 SSA 的动作序列</strong>。类型检查和规范化都在这个格式上做，大部分编译期优化也应该放这里。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>抽象</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L322">GenericAtom</a></td>
+<td>查询里的一个原子：<code>f(x, y) = z</code></td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L378">Query</a></td>
+<td>原子的合取</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L485">GenericCoreAction</a></td>
+<td>动作：set、union 等</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L897">GenericCoreRule</a></td>
+<td>查询 + 动作</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L115">ResolvedCall</a></td>
+<td>解析到函数或具体原语</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s3-3">函数即表</h3>
+<p>egglog 的核心抽象：<strong>每个函数或构造器都是一张表</strong>，输入列是键，输出列是值。<code>(Add x y)</code> 就是表 <code>Add</code> 里的一行 <code>(x, y) → e-class id</code>。e-node 不再是专门的数据结构，只是表里的行。</p>
+<h2 id="s4">桥接层：e-graph 语义</h2>
+<h3 id="s4-1">职责</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L123">egglog_bridge::EGraph</a> 在 core-relations 上实现三件事：半朴素、默认值、merge 函数。它不实现算法，只做编码。</p>
+<p>一张函数表的列比用户看到的多：键列、值列，再加时间戳等元信息（新旧行靠它区分）。规则由 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/rule.rs">rule.rs</a> 的 builder 构建。文件头说得很准：<strong>egglog 规则最终只是一组 core-relations 规则，用时间戳范围作为约束来参数化。</strong></p>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1182">add_rule</a> 负责连接两层：</p>
+<ol>
+<li>把解析后的规则规范化成 Core IR。</li>
+<li>决定是否半朴素。<code>:naive</code> 规则退出半朴素，这时原语可以读写数据库。</li>
+<li>用 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1252">BackendRule</a> 把查询和动作翻译成 bridge 的 builder 调用。</li>
+</ol>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><p>半朴素不只是优化，它还影响语义：只有 <code>:naive</code> 或 <code>:unsafe-seminaive</code> 规则才能用读数据库的原语。看到 <code>requires_read_context</code> 时要想到这一点。</p>
+</div>
+<h2 id="s5">union-find 与 rebuild</h2>
+<h3 id="s5-1">问题</h3>
+<p>当 <code>union(a, b)</code> 发生后，所有引用 <code>b</code> 的行都过期了：<code>f(b) = x</code> 和 <code>f(a) = y</code> 现在键相同，x 和 y 必须合并，这可能触发新的 union。这叫同余闭包。</p>
+<h3 id="s5-2">union-find 本身</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/union-find/src/lib.rs">union-find</a> 用 <strong>union by min id</strong>：小 ID 当根。文件头明说这不保证文献里的渐进复杂度，这是个启发式选择，好处是减少同余闭包中被扰动的 ID 数量，实现也简单。</p>
+<p>并发版本的安全性论证写在注释里：成功的 union 把根指向更小的 ID，路径分裂也只把父节点改成更小的祖先，所以链接单调递减，不会有 ABA，不会成环（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/union-find/src/lib.rs#L24">UnionFind</a> 附近）。</p>
+<p>union-find 自身也是一张表：<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/uf/mod.rs">uf/mod.rs</a> 是“以 union-find 为后端的表”，所以 union 也是往表里写一行。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 公司合并后的员工号</div><ul>
+<li><strong>员工号</strong> = e-class id。</li>
+<li><strong>两家公司合并</strong> = <code>union</code>：两个号从此算同一个人，较小的号保留。</li>
+<li><strong>改名登记册</strong> = union-find：查旧号能找到现行号。</li>
+<li><strong>全公司的表格</strong> = 函数表：里面还写着旧号，所以要逐张更新。</li>
+<li><strong>重复的人事记录要合并</strong> = 同余：更新后发现两行键相同，薪资字段要走 merge 规则，可能又发现两个人其实是一个人。</li>
+</ul>
+<p>一直做到没有新发现为止，这就是 rebuild 循环。</p>
+</div>
+<h3 id="s5-3">rebuild</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L748">run_rules_inner</a> 有个小优化：如果这轮 union-find 表大小没变，就跳过 rebuild，只推进时间戳。</p>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L770">rebuild</a> 分三种情况：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原生表级 rebuild</td>
+<td>union-find 表提供 <code>rebuilder</code></td>
+</tr>
+<tr>
+<td>并行 rebuild</td>
+<td>线程数大于 1</td>
+</tr>
+<tr>
+<td>串行迭代</td>
+<td>其他情况</td>
+</tr>
+</tbody>
+</table></div>
+<p>原生路径的循环值得细看：<strong>必须先 rebuild 容器，再 rebuild 表</strong>。这段注释用一个 <code>Vec</code> 例子解释了原因：如果先 rebuild 表，<code>:no-merge</code> 函数可能因为两个 <code>Vec</code> 尚未被识别为相等而报错。</p>
+
+<figure class="flow"><div class="flow-head">rebuild 循环<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;rebuild 循环&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;本轮有新 union&quot;, &quot;s&quot;: &quot;uf 表变大&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;rebuild_containers&quot;, &quot;s&quot;: &quot;先规范容器&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;apply_rebuild&quot;, &quot;s&quot;: &quot;规范函数表&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;refresh_rows&quot;, &quot;s&quot;: &quot;重新打时间戳&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;有变化？&quot;, &quot;s&quot;: &quot;到不动点&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;结束&quot;, &quot;s&quot;: &quot;数据库规范&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;u&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;q&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;否&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:l&quot;, &quot;b&quot;: &quot;c:b&quot;, &quot;t&quot;: &quot;是&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 175.0}}"></div><figcaption>对应 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L819">rebuild 的循环</a>。<code>refresh_rows</code> 处理一种细节：容器 rebuild 可能让父行变得可匹配，但存的 id 没变，所以要重新打时间戳，否则半朴素看不到。</figcaption></figure>
+<p>最新的 CHANGELOG 还提到增量 rebuild 只在反向索引足够“热”时才启用（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CHANGELOG.md#L7">CHANGELOG</a>）。</p>
+<h2 id="s6">半朴素求值</h2>
+<h3 id="s6-1">问题</h3>
+<p>一轮规则跑完，下一轮绝大多数匹配都是旧的。全量重新匹配浪费极大。</p>
+<h3 id="s6-2">原理</h3>
+<p>每行带时间戳。每条规则记住 <code>last_run_at</code>。对 N 个原子的规则，生成 N 个查询变体：第 i 个查询要求第 i 个原子只匹配<strong>新行</strong>，它前面的原子匹配旧行，后面的匹配全部。这保证每个新匹配恰好被找到一次。</p>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/rule.rs#L763">rule.rs</a> 的注释正是这么说的：“For N atoms, we create N queries for seminaive evaluation”，并且复用缓存的计划，只改时间戳约束。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 只看未读邮件</div><ul>
+<li><strong>收件箱</strong> = 函数表。</li>
+<li><strong>已读标记</strong> = <code>last_run_at</code>。</li>
+<li><strong>规则</strong> = 过滤器：“A 发的并且有 B 附件”。</li>
+</ul>
+<p>全量匹配等于每天把全部邮件再筛一遍。半朴素只找<strong>新邮件</strong>参与的组合：新的 A 配任意 B，或旧的 A 配新的 B。任何完全由旧邮件组成的组合，昨天已经处理过了。</p>
+</div>
+
+<figure class="flow"><div class="flow-head">三个原子的规则生成三个变体<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;三个原子的规则生成三个变体&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;规则 A x B x C&quot;, &quot;s&quot;: &quot;共用一份缓存计划&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;A_new x B x C&quot;, &quot;s&quot;: &quot;聚焦 A&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;A_old x B_new x C&quot;, &quot;s&quot;: &quot;聚焦 B&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;A_old x B_old x C_new&quot;, &quot;s&quot;: &quot;聚焦 C&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;所有新匹配&quot;, &quot;s&quot;: &quot;每个恰好一次&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;r:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a:r&quot;, &quot;b&quot;: &quot;u:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;u&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c:r&quot;, &quot;b&quot;: &quot;u:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 250.0, &quot;rh&quot;: 84.0, &quot;nw&quot;: 205.0}}"></div><figcaption>公式直接来自 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/rule.rs#L763">add_rules_from_cached</a> 的注释。第一次运行时 <code>mid_ts</code> 为 0，旧集合为空，所以聚焦后面原子的变体直接跳过。</figcaption></figure>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs#L703">run_rules_impl</a> 把所有规则放进一个 rule set 一起跑，每条规则的 <code>last_run_at</code> 更新为当前时间戳。第一次运行时计划才构建并缓存。</p>
+<h2 id="s7">查询引擎：core-relations</h2>
+<h3 id="s7-1">职责</h3>
+<p>这是一个小型内存数据库，提供表、索引、查询计划和一个小的动作 VM。<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/mod.rs#L435">Database</a> 是入口，<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/table_spec.rs#L159">Table</a> 是表的 trait，所以 union-find 表和普通排序表可以共存（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/table/mod.rs">table/</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/uf/mod.rs">uf/</a>）。</p>
+<h3 id="s7-2">查询规划</h3>
+<p><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/plan.rs">plan.rs</a> 的文件头是全项目最好的文档之一，分两个阶段：</p>
+
+<figure class="flow"><div class="flow-head">查询计划的两个阶段<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;查询计划的两个阶段&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;合取查询&quot;, &quot;s&quot;: &quot;超图&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;树分解&quot;, &quot;s&quot;: &quot;变量消元&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;bag 树&quot;, &quot;s&quot;: &quot;min-fill 启发式&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;j&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;单 bag join 计划&quot;, &quot;s&quot;: &quot;JoinStage 序列&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;无收益时&quot;, &quot;s&quot;: &quot;SinglePlan&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gj&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Generic Join&quot;, &quot;s&quot;: &quot;PlanStrategy::Gj&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fj&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Free Join&quot;, &quot;s&quot;: &quot;PureSize · MinCover&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;j&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d:b&quot;, &quot;b&quot;: &quot;s:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;j:b&quot;, &quot;b&quot;: &quot;gj:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;j&quot;, &quot;b&quot;: &quot;fj&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 175.0}}"></div><figcaption><code>:no-decomp</code> 可以跳过分解（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1182">add_rule</a>）。策略枚举是 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/plan.rs#L509">PlanStrategy</a>。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>树分解</td>
+<td>把查询超图拆成一棵重叠子查询树，像 Yannakakis 算法</td>
+</tr>
+<tr>
+<td>变量消元</td>
+<td>每次选一个变量，产生一个 bag。<code>next_var_to_eliminate</code> 用 min-fill 启发式</td>
+</tr>
+<tr>
+<td>消息变量</td>
+<td>bag 的结果按它和父节点共享的变量做键，父节点用它剪枝</td>
+</tr>
+<tr>
+<td>Generic Join</td>
+<td>每步选一个变量，与所有相关列求交集，最坏情况最优</td>
+</tr>
+<tr>
+<td>Free Join</td>
+<td>每步选一个 cover 子原子去探测其他原子。可以退化成哈希 join 或接近 Generic Join</td>
+</tr>
+</tbody>
+</table></div>
+<p>执行在 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/execute.rs">execute.rs</a>，是整个引擎最大的文件之一。<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/packed_trie.rs">packed_trie.rs</a> 提供紧凑索引。CHANGELOG 里最近的工作集中在这里：同一 rule set 运行内共享 packed join 索引。</p>
+<h3 id="s7-3">动作</h3>
+<p>规则头编译成 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/action/mod.rs">action</a> 里的小型 VM 程序，这与 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs#L8">core.rs 文件头</a> 的说法一致。写入进入缓冲，之后 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/mod.rs#L696">merge_all</a> 合并。</p>
+<h2 id="s8">提取与证明</h2>
+<h3 id="s8-1">提取</h3>
+<p>饱和之后要从 e-class 选一个最便宜的项。<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/extract.rs">extract.rs</a> 把代价模型分成两个 trait：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Trait</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TreeCostModel</code></td>
+<td>树代价：节点注解加子节点代价折叠</td>
+</tr>
+<tr>
+<td><code>DagCostModel</code></td>
+<td>DAG 代价：共享的子项只算一次</td>
+</tr>
+<tr>
+<td><code>MonoidCost</code></td>
+<td>DAG 需要的结合、交换组合运算</td>
+</tr>
+</tbody>
+</table></div>
+<p>这是刚发布的破坏性变更（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CHANGELOG.md#L15">CHANGELOG</a>）。自定义代价要满足的代数律文档里写明了，Rust 无法强制。</p>
+<h3 id="s8-2">证明</h3>
+<p>这是比较新的部分。<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/proofs/proof_encoding.md">proof_encoding.md</a> 讲清了核心思路：<strong>term encoding 把程序里所有 <code>union</code> 调用去掉</strong>。每个 sort 显式添加 union-find 结构，用规则维护，这样全部等式推理都显式出现，可以被加上证明跟踪。</p>
+<p>这是<strong>程序到程序的变换</strong>：普通 egglog 程序被重写成另一个 egglog 程序。</p>
+
+<figure class="flow"><div class="flow-head">证明模式的结构<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;证明模式的结构&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;原始程序&quot;, &quot;s&quot;: &quot;已类型检查&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;term encoding&quot;, &quot;s&quot;: &quot;移除 union&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;x&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;再次去糖和检查&quot;, &quot;s&quot;: &quot;加入术语类型&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;运行&quot;, &quot;s&quot;: &quot;带 UF 规则&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;证明提取&quot;, &quot;s&quot;: &quot;proof_extractor&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;证明检查&quot;, &quot;s&quot;: &quot;proof_checker&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;x&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;x&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>开启方式是 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L535">EGraph::new_with_proofs</a>，代码在 <a class="src" href="https://github.com/egraphs-good/egglog/tree/6c3a0c910247f616e6d17b2c3923a757948a7841/src/proofs">src/proofs/</a>。<code>proof_encoding_helpers</code> 还导出了判断程序是否支持证明的函数，不是所有程序都支持。</figcaption></figure>
+<h2 id="s9">调度与并行</h2>
+<h3 id="s9-1">调度</h3>
+<p>默认每个 ruleset 跑一轮并应用全部匹配。<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/scheduler.rs#L51">Scheduler</a> trait 提供两个钩子：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>can_stop</code></td>
+<td>无数据库变化时能否认为饱和</td>
+</tr>
+<tr>
+<td><code>filter_matches</code></td>
+<td>筛选一条规则的匹配</td>
+</tr>
+</tbody>
+</table></div>
+<p>这是控制指数爆炸的关键手段。一条规则选中的匹配会立即应用，然后才调用下一条规则的 <code>filter_matches</code>（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CHANGELOG.md#L10">CHANGELOG</a>）。</p>
+<p>用户也可以在语言层写 schedule：<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L1024">run_schedule</a> 执行组合的 <code>repeat</code>、<code>seq</code>、<code>saturate</code>。</p>
+<h3 id="s9-2">并行</h3>
+<p><code>-j N</code> 指定线程数，默认 1。README 提醒：这个支持比较新，多数用户单线程运行，基准也只测单线程，但不要加入粗粒度锁（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/README.md#L97">Parallelism</a>）。每个 <code>EGraph</code> 有自己的作用域线程池，实现在 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/concurrency/src/threadpool/mod.rs">concurrency</a>。CLAUDE.md 也写明 core-relations 默认串行。</p>
+<h2 id="s10">端到端：一条 rewrite</h2>
+<p>看一个程序：</p>
+<pre><code class="language-lisp">(datatype Math (Num i64) (Add Math Math))
+(rewrite (Add a b) (Add b a))
+(let e (Add (Num 1) (Num 2)))
+(run 1)
+(check (= e (Add (Num 2) (Num 1))))
+</code></pre>
+<p>这是我写的示意，用来串流程，没有实际运行过。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一条 rewrite 的一轮</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;desugar&quot;, &quot;s&quot;: &quot;rewrite → rule&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Core IR&quot;, &quot;s&quot;: &quot;查询 + 动作&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;bridge 规则&quot;, &quot;s&quot;: &quot;BackendRule&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;计划&quot;, &quot;s&quot;: &quot;Free Join&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;N 个变体&quot;, &quot;s&quot;: &quot;时间戳范围&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;执行查询&quot;, &quot;s&quot;: &quot;得到匹配&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;动作 VM&quot;, &quot;s&quot;: &quot;写 Add · union&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;merge_all&quot;, &quot;s&quot;: &quot;刷入表&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;i&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;rebuild&quot;, &quot;s&quot;: &quot;同余到不动点&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;j&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;check&quot;, &quot;s&quot;: &quot;查 e-class&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;i&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;i&quot;, &quot;b&quot;: &quot;j&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a"><div class="step-title">1. 去糖</div><p><code>rewrite</code> 变成规则：匹配 <code>(Add a b)</code> 得到 <code>?e</code>，动作是构造 <code>(Add b a)</code> 并和 <code>?e</code> union。</p>
+</div><div class="step" data-hl="a,b"><div class="step-title">2. Core IR</div><p>规范化后，查询是单原子 <code>Add(a, b) = e</code>，动作是一串 SSA 式的操作。</p>
+</div><div class="step" data-hl="b,c"><div class="step-title">3. 翻译</div><p><code>add_rule</code> 通过 <code>BackendRule</code> 翻译，用 <code>seminaive = true</code> 建 bridge 规则。</p>
+</div><div class="step" data-hl="c,d"><div class="step-title">4. 计划</div><p>第一次运行时 <code>build_cached_plan</code> 构建并缓存计划。单原子很简单，多原子才用到分解和 Free Join。</p>
+</div><div class="step" data-hl="d,e"><div class="step-title">5. 时间戳</div><p>只有一个原子，所以只有一个变体：只看 <code>last_run_at</code> 之后的新行。</p>
+</div><div class="step" data-hl="e,f"><div class="step-title">6. 查询</div><p><code>Database</code> 的 <code>run_rule_set</code> 执行，找到 <code>(Add (Num 1) (Num 2))</code>。</p>
+</div><div class="step" data-hl="f,g"><div class="step-title">7. 动作</div><p>VM 查找或创建 <code>(Add (Num 2) (Num 1))</code>，再写一条 union。</p>
+</div><div class="step" data-hl="g,h"><div class="step-title">8. 合并</div><p>缓冲写入刷入表。</p>
+</div><div class="step" data-hl="h,i"><div class="step-title">9. rebuild</div><p>uf 表变大了，所以 rebuild：规范函数表，处理同余。</p>
+</div><div class="step" data-hl="i,j"><div class="step-title">10. 检查</div><p><code>check</code> 把事实编译成查询，确认两边在同一 e-class。</p>
+</div></div></div>
+<h2 id="s11">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全部 crate</td>
+<td>MIT，Copyright 2025 egraphs-good</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/Cargo.toml#L20">workspace 声明</a></td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>见各 crate</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/Cargo.toml#L23">workspace.dependencies</a></td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用、嵌入产品</td>
+<td>允许</td>
+<td>保留 LICENSE</td>
+</tr>
+<tr>
+<td>提 PR</td>
+<td>允许</td>
+<td>未看到 CLA</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留声明</td>
+</tr>
+<tr>
+<td>发 crate</td>
+<td>允许</td>
+<td>换名字</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>无网络条款</td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：GitHub API 显示 <code>LICENSE</code> 只有 2025-01-18 一次提交记录。学术使用请按 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CITATION.bib">CITATION.bib</a> 引用。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解。</p>
+</div>
+<h2 id="s12">贡献与定制</h2>
+<h3 id="s12-1">开发环境</h3>
+<pre><code class="language-bash">git clone https://github.com/egraphs-good/egglog
+cd egglog
+cargo run --release -- tests/fibonacci-demand.egg
+make test
+make fixnits
+</code></pre>
+<h3 id="s12-2">项目规则</h3>
+<p>来自 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CLAUDE.md#L13">CLAUDE.md</a>：</p>
+<ul>
+<li>结束前跑 <code>make fixnits</code> 或 <code>make nits</code>。</li>
+<li>测试总是用 <code>--release</code>，或 <code>make test</code>。</li>
+<li>性能敏感的改动，以 <code>script/bench.py</code> 为准。</li>
+<li>文档保持简洁，避免重复。</li>
+<li>重大改动更新 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/CHANGELOG.md">CHANGELOG.md</a>。</li>
+<li>PR 有 git 大小预算检查，防止误提交生成数据（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/README.md#L73">Git size budget</a>）。</li>
+<li>不要悲观化并行性能，比如加粗粒度锁。</li>
+</ul>
+<p>测试是快照风格：<a class="src" href="https://github.com/egraphs-good/egglog/tree/6c3a0c910247f616e6d17b2c3923a757948a7841/tests">tests/</a> 下有约 100 个 <code>.egg</code> 程序，<code>make test</code> 用 <code>cargo insta</code>。</p>
+<h3 id="s12-3">适合入手的方向</h3>
+<ul>
+<li>新增 <code>tests/*.egg</code> 回归用例。</li>
+<li>补 sort 的原语，模板在 <a class="src" href="https://github.com/egraphs-good/egglog/tree/6c3a0c910247f616e6d17b2c3923a757948a7841/src/sort">src/sort/</a>。</li>
+<li>改善错误信息。</li>
+<li>文档，比如公开 API 的 rustdoc。</li>
+</ul>
+<h3 id="s12-4">扩展点</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>想加什么</th>
+<th>位置</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新 sort</td>
+<td>实现 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/sort/mod.rs#L50">Sort</a></td>
+<td>参考 <a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/sort/vec.rs">vec.rs</a></td>
+</tr>
+<tr>
+<td>新原语</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L100">Primitive</a> + <code>add_primitive!</code></td>
+<td>分 Pure、Read、Write、Full 四种上下文</td>
+</tr>
+<tr>
+<td>新命令</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L341">UserDefinedCommand</a></td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs#L631">add_command</a> 注册</td>
+</tr>
+<tr>
+<td>命令宏</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/command_macro.rs">CommandMacro</a></td>
+<td>可以看到类型信息</td>
+</tr>
+<tr>
+<td>调度器</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/scheduler.rs#L51">Scheduler</a></td>
+<td>控制匹配</td>
+</tr>
+<tr>
+<td>代价模型</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/extract.rs">extract.rs</a></td>
+<td>遵守代数律</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s12-5">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">想在 egglog 上做点什么<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;想在 egglog 上做点什么&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;怎么用？&quot;, &quot;s&quot;: &quot;从语言开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;.egg 程序&quot;, &quot;s&quot;: &quot;规则 · schedule&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Rust API&quot;, &quot;s&quot;: &quot;原语 · 调度器&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;egglog-experimental&quot;, &quot;s&quot;: &quot;现成扩展&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;fork core-relations&quot;, &quot;s&quot;: &quot;改查询引擎&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>README 推荐需要更多功能时用 <a href="https://github.com/egraphs-good/egglog-experimental">egglog-experimental</a>，Python 绑定在 <a href="https://github.com/egraphs-good/egglog-python">egglog-python</a>。</figcaption></figure>
+<h3 id="s12-6">仓库里没有的东西</h3>
+<ul>
+<li><strong>语言绑定和实验插件</strong>：分别在 <code>egglog-python</code> 和 <code>egglog-experimental</code>。</li>
+<li><strong>教程</strong>：在 <a href="https://github.com/egraphs-good/egglog-tutorial">egglog-tutorial</a>。</li>
+<li><strong>nightly 基准结果</strong>：在 UW 的机器上跑，脚本在仓库里（<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/Makefile#L14">Makefile</a>）。</li>
+</ul>
+<h2 id="s13">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入口</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/lib.rs">src/lib.rs</a></td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/cli.rs">cli.rs</a></td>
+</tr>
+<tr>
+<td>AST 与解析</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/ast/mod.rs">ast/mod.rs</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/ast/parse.rs">parse.rs</a></td>
+</tr>
+<tr>
+<td>去糖</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/ast/desugar.rs">desugar.rs</a></td>
+</tr>
+<tr>
+<td>类型</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/typechecking.rs">typechecking.rs</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/constraint.rs">constraint.rs</a></td>
+</tr>
+<tr>
+<td>Core IR</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/core.rs">core.rs</a></td>
+</tr>
+<tr>
+<td>调度</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/scheduler.rs">scheduler.rs</a></td>
+</tr>
+<tr>
+<td>提取</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/extract.rs">extract.rs</a></td>
+</tr>
+<tr>
+<td>证明</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/proofs/proof_encoding.rs">proof_encoding.rs</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/src/proofs/proof_checker.rs">proof_checker.rs</a></td>
+</tr>
+<tr>
+<td>桥接</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/lib.rs">lib.rs</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/egglog-bridge/src/rule.rs">rule.rs</a></td>
+</tr>
+<tr>
+<td>数据库</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/mod.rs">free_join/mod.rs</a></td>
+</tr>
+<tr>
+<td>计划</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/plan.rs">plan.rs</a></td>
+</tr>
+<tr>
+<td>执行</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/free_join/execute.rs">execute.rs</a></td>
+</tr>
+<tr>
+<td>表</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/table/mod.rs">table/mod.rs</a></td>
+</tr>
+<tr>
+<td>union-find</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/union-find/src/lib.rs">union-find</a>、<a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/core-relations/src/uf/mod.rs">uf/mod.rs</a></td>
+</tr>
+<tr>
+<td>并发</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/concurrency/src/lib.rs">concurrency</a></td>
+</tr>
+<tr>
+<td>WASM</td>
+<td><a class="src" href="https://github.com/egraphs-good/egglog/blob/6c3a0c910247f616e6d17b2c3923a757948a7841/wasm-example/README.md">wasm-example</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

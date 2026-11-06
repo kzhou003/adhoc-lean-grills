@@ -1,0 +1,12 @@
+{
+  "title": "egglog 源码导读",
+  "kicker": "Source-level guide · egraphs-good/egglog",
+  "lede": "egglog 把等式饱和和 Datalog 合成一门语言。这份导读讲清一条 rewrite 怎么一路变成 Free Join 查询，union-find 和 rebuild 怎么配合，半朴素求值怎么省掉重复工作，以及想贡献或嵌入它时要知道什么。",
+  "brand": "egglog 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"eg": {"repo": "egraphs-good/egglog", "sha": "6c3a0c910247f616e6d17b2c3923a757948a7841", "local": "~/development/egglog-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}
