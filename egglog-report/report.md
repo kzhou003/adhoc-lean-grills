@@ -66,7 +66,7 @@ e eg -> br
 e br -> cr
 e cr -> uf
 e cr -> id
-e cr:b -> cc:r
+e cr:l -> cc:t
 e ast:t -> eg:b
 cap: 分工见 [[eg:CLAUDE.md#L6|Project structure]]。注意 [[eg:egglog-bridge/src/lib.rs#L1|bridge 的文件头]] 的说法：它主要做“去糖”，不实现 join 或 union-find 算法。workspace 成员见 [[eg:Cargo.toml#L1|Cargo.toml]]。
 :::
