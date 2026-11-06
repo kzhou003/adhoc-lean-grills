@@ -1,0 +1,2248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlashInfer 与 CAKE 导读</title>
+<meta name="description" content="一份为“想读懂、想贡献、想定制 FlashInfer”准备的导读：它解决什么问题，JIT 和 kernel 体系怎么搭起来，以及占了仓库绝大部分代码量的 CAKE：编译器在哪、Cake IR 长什么样、产物怎么进仓库、一次调用怎么跑到 GPU 上。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:FlashInfer 与 CAKE：从原理到源码" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">FlashInfer + CAKE 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">没有 FlashInfer 时有什么问题</a>
+<a class="nav-l3" href="#s2-2">现在的仓库有多大</a>
+<a class="nav-l3" href="#s2-3">一张总图</a>
+<a class="nav-l3" href="#s2-4">要求 / 目标 / 限制</a>
+<a class="nav-l2" href="#s3">调用主干：一次 decode 怎么跑到 GPU 上</a>
+<a class="nav-l3" href="#s3-1">职责划分</a>
+<a class="nav-l3" href="#s3-2">一条真实路径</a>
+<a class="nav-l3" href="#s3-3">核心抽象</a>
+<a class="nav-l2" href="#s4">JIT 与分发</a>
+<a class="nav-l3" href="#s4-1">难点</a>
+<a class="nav-l3" href="#s4-2">生命周期</a>
+<a class="nav-l3" href="#s4-3">架构目标</a>
+<a class="nav-l3" href="#s4-4">三条分发路径</a>
+<a class="nav-l2" href="#s5">kernel 版图与后端选择</a>
+<a class="nav-l3" href="#s5-1">主要家族</a>
+<a class="nav-l3" href="#s5-2">同一个算子，多个 kernel 来源</a>
+<a class="nav-l3" href="#s5-3">选择逻辑</a>
+<a class="nav-l3" href="#s5-4">实验轨道</a>
+<a class="nav-l2" href="#s6">CAKE 是什么：问题与边界</a>
+<a class="nav-l3" href="#s6-1">它要解决的问题</a>
+<a class="nav-l3" href="#s6-2">名字的由来和时间线</a>
+<a class="nav-l3" href="#s6-3">编译器和仓库的边界</a>
+<a class="nav-l2" href="#s7">Cake IR：把硬件决策写成程序</a>
+<a class="nav-l3" href="#s7-1">设计思路：描述 schedule，不是描述算法</a>
+<a class="nav-l3" href="#s7-2">一个反直觉的决定：不要 layout</a>
+<a class="nav-l3" href="#s7-3">先认识这些词</a>
+<a class="nav-l3" href="#s7-4">从生成代码反推 IR</a>
+<a class="nav-l3" href="#s7-5">一次 barrier 握手</a>
+<a class="nav-l3" href="#s7-6">设计原则和架构覆盖</a>
+<a class="nav-l2" href="#s8">Harness 与进化循环</a>
+<a class="nav-l3" href="#s8-1">分析套件</a>
+<a class="nav-l3" href="#s8-2">两层循环</a>
+<a class="nav-l3" href="#s8-3">实验结果</a>
+<a class="nav-l3" href="#s8-4">从一个 shape 到一个库</a>
+<a class="nav-l2" href="#s9">产物怎么进仓库</a>
+<a class="nav-l3" href="#s9-1">难点</a>
+<a class="nav-l3" href="#s9-2">五种交付形态</a>
+<a class="nav-l3" href="#s9-3">形态 C 的包结构</a>
+<a class="nav-l3" href="#s9-4">内容寻址</a>
+<a class="nav-l3" href="#s9-5">数值语义是契约的一部分</a>
+<a class="nav-l3" href="#s9-6">复用与 deslop</a>
+<a class="nav-l3" href="#s9-7">仓库如何放行生成代码</a>
+<a class="nav-l2" href="#s10">运行时：路由、窗口与调度规划</a>
+<a class="nav-l3" href="#s10-1">难点</a>
+<a class="nav-l3" href="#s10-2">路由模型</a>
+<a class="nav-l3" href="#s10-3">三种 grid 规则</a>
+<a class="nav-l3" href="#s10-4">运行期 cost model</a>
+<a class="nav-l3" href="#s10-5">产品化的入口：cake_fmha</a>
+<a class="nav-l2" href="#s11">验证与可信度</a>
+<a class="nav-l3" href="#s11-1">分层验证</a>
+<a class="nav-l3" href="#s11-2">确定性是一等概念</a>
+<a class="nav-l3" href="#s11-3">已知限制</a>
+<a class="nav-l2" href="#s12">端到端生命周期</a>
+<a class="nav-l2" href="#s13">开源许可证</a>
+<a class="nav-l3" href="#s13-1">各部分的许可证</a>
+<a class="nav-l3" href="#s13-2">规则和场景</a>
+<a class="nav-l3" href="#s13-3">历史</a>
+<a class="nav-l2" href="#s14">贡献与定制</a>
+<a class="nav-l3" href="#s14-1">开发环境</a>
+<a class="nav-l3" href="#s14-2">项目的 review 规则</a>
+<a class="nav-l3" href="#s14-3">碰 CAKE 代码时</a>
+<a class="nav-l3" href="#s14-4">适合入手的方向</a>
+<a class="nav-l3" href="#s14-5">定制路线</a>
+<a class="nav-l2" href="#s15">附录：源码索引</a>
+<a class="nav-l3" href="#s15-1">FlashInfer 主干</a>
+<a class="nav-l3" href="#s15-2">CAKE 产物</a>
+<a class="nav-l3" href="#s15-3">仓库外的资料</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · FlashInfer × CAKE compiler</div><h1>FlashInfer 与 CAKE：从原理到源码</h1><p class="lede">一份为“想读懂、想贡献、想定制 FlashInfer”准备的导读：它解决什么问题，JIT 和 kernel 体系怎么搭起来，以及占了仓库绝大部分代码量的 CAKE：编译器在哪、Cake IR 长什么样、产物怎么进仓库、一次调用怎么跑到 GPU 上。</p><p class="meta">flashinfer-ai/flashinfer @ 555dd84</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给有系统经验、第一次接触 FlashInfer 的工程师。读完你应该能做到：说清楚 FlashInfer 的一次调用怎么变成 GPU 上的 kernel；知道一个 <code>backend=&quot;cake&quot;</code> 的 kernel 从哪来、怎么被选中、能不能改；判断自己想做的事该走哪条路。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 先说最重要的结论：CAKE 编译器不在这个仓库里</div><p>你要找的 CAKE 编译器（Cake IR、verifier、cost model、codegen、agent harness）<strong>不在 FlashInfer 仓库里，也不在 <code>flashinfer-ai</code> 组织的公开仓库列表里</strong>。我在 GitHub 上也没有搜到官方实现，第三方项目 <a href="https://github.com/huangzhilin-hzl/cake-ir">cake-ir</a> 的 README 同样把官方实现称为未发布。仓库里有的是它的<strong>导出产物</strong>：生成的 CUDA、host binding、构建清单、路由表。代码里没有 <code>import cake</code>，<code>requirements.txt</code> 也不依赖它。</p>
+<p>所以这份导读把 CAKE 拆成两半讲：编译器内部靠 <a href="https://arxiv.org/abs/2608.12629">CAKE 论文</a>，产物和运行时靠固定版本的源码。论文的说法和源码的说法不会混在一起。</p>
+</div>
+<p>CAKE 相关章节里，每个说法都标了证据来源：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>标记</th>
+<th>含义</th>
+<th>可信度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>【论文】</strong></td>
+<td>来自 arXiv 2608.12629v1（2026-08-12），作者来自 NVIDIA 和 CMU</td>
+<td>作者自述，部分内部设计论文明确不公开</td>
+</tr>
+<tr>
+<td><strong>【仓库】</strong></td>
+<td>在固定版本的源码里读到，旁边有链接</td>
+<td>已逐条校验</td>
+</tr>
+<tr>
+<td><strong>【推断】</strong></td>
+<td>根据产物特征反推，没有直接证据</td>
+<td>可能有误，用时请自行核实</td>
+</tr>
+</tbody>
+</table></div>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：问题、目标、限制，以及 FlashInfer 的整体结构。</li>
+<li><strong>调用主干</strong>：一次 <code>single_decode_with_kv_cache</code> 穿过 API、JIT、kernel 的完整路径。</li>
+<li><strong>JIT 与分发</strong>：JitSpec、架构目标、缓存、AOT、wheel。</li>
+<li><strong>kernel 版图</strong>：attention、GEMM、MoE、通信，以及多后端怎么选。</li>
+<li><strong>CAKE 是什么</strong>：它要解决的问题，以及编译器和仓库的边界。</li>
+<li><strong>Cake IR</strong>：语言设计，并用真实生成代码对照讲解 IR 概念。</li>
+<li><strong>Harness 与进化循环</strong>：verifier、cost model、agent 工作流、从单个 shape 到整个库。</li>
+<li><strong>产物怎么进仓库</strong>：五种交付形态、<code>build.json</code>、加载器、deslop。</li>
+<li><strong>运行时</strong>：路由、窗口、grid 规则、运行期 cost model。</li>
+<li><strong>验证与可信度</strong>：测试分层、确定性、已知限制。</li>
+<li><strong>端到端生命周期</strong>：从 Cake IR 到 GPU 上的一次反向传播。</li>
+<li><strong>开源许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+<p>只关心 CAKE 的读者可以读完第 1 章后直接跳到第 5 章。</p>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><ul>
+<li>FlashInfer：<code>flashinfer-ai/flashinfer</code> @ <code>555dd84</code>（2026-11-06，版本 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/version.txt">0.7.3</a>）</li>
+<li>CAKE 论文：<a href="https://arxiv.org/abs/2608.12629">arXiv 2608.12629v1</a></li>
+<li>这个仓库变化极快：当天的 commit 还在给 CAKE 训练包改名。所有链接都固定在上面的 SHA，读最新代码时行号和名字可能已经变了。</li>
+</ul>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">没有 FlashInfer 时有什么问题</h3>
+<p>LLM 推理的大部分 GPU 时间花在几类 kernel 上：attention、线性层（GEMM）、MoE、通信。框架作者面对的问题不是“写不出来”，而是下面这些：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>FlashInfer 的回答</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>组合爆炸</strong></td>
+<td>dtype × head_dim × 架构 × KV 布局 × 位置编码，预编译全部组合装不下</td>
+<td>默认 JIT：用到哪个组合才编译哪个，缓存 <code>.so</code></td>
+</tr>
+<tr>
+<td><strong>硬件代际</strong></td>
+<td>Hopper 的 WGMMA、Blackwell 的 <code>tcgen05</code> + TMEM、SM120 没有 TMEM，同一算子要重写多遍</td>
+<td>按架构分别实现，同一个 Python API 背后多个 backend</td>
+</tr>
+<tr>
+<td><strong>专家 kernel 难复现</strong></td>
+<td>warp 分工、异步 barrier、内存层级的选择决定了最后 20% 性能，新模型一出来就要重做</td>
+<td>CAKE：让 agent 在编译器辅助下生成 kernel</td>
+</tr>
+<tr>
+<td><strong>新模型节奏</strong></td>
+<td>DeepSeek、Kimi、Qwen、MiniMax 的新算子几周就要支持</td>
+<td>实验轨道 <code>flashinfer/experimental/</code>，加上 CAKE 的批量产出</td>
+</tr>
+</tbody>
+</table></div>
+<p>README 的定位是“a library and kernel generator for inference”（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/README.md#L18">README</a>）。这个定位在 2026 年有了新的含义：看代码量，FlashInfer 现在主要是一个<strong>生成 kernel 的集散地</strong>。</p>
+<h3 id="s2-2">现在的仓库有多大</h3>
+<p>下面的数字是我在固定 SHA 上统计的。统计口径是路径名是否含 <code>cake</code>，所以 <code>deepgemm_*</code> 这类同样由 CAKE 生成、但路径不含 <code>cake</code> 的目录算在“其他”里，实际比例更高。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>被跟踪的文件</td>
+<td>18,309</td>
+</tr>
+<tr>
+<td>路径含 <code>cake</code> 的文件</td>
+<td>11,854（65%）</td>
+</tr>
+<tr>
+<td>含 “Generated by Cake” 标记的文件</td>
+<td>4,610</td>
+</tr>
+<tr>
+<td>C/CUDA 代码行：路径含 <code>cake</code> / 其他</td>
+<td>约 1158 万 / 约 72 万</td>
+</tr>
+<tr>
+<td>Python 代码行：路径含 <code>cake</code> / 其他</td>
+<td>约 131 万 / 约 312 万</td>
+</tr>
+<tr>
+<td><code>cake-build/1</code> 清单 <code>build.json</code></td>
+<td>54 个，登记 5,349 个库</td>
+</tr>
+<tr>
+<td><code>CakeProgram</code> 常量</td>
+<td>449 个，分布在 32 个加载器</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表决定了读这个仓库的方式：<strong>不要试图读生成代码</strong>。手写的核心不大，读懂主干和几个模式之后，生成代码按需查就够了。</p>
+<h3 id="s2-3">一张总图</h3>
+
+<figure class="flow"><div class="flow-head">全景：FlashInfer 在 serving 栈里的位置<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;全景：FlashInfer 在 serving 栈里的位置&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;fw&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;serving 框架&quot;, &quot;s&quot;: &quot;vLLM · SGLang&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Python API&quot;, &quot;s&quot;: &quot;plan/run · backend=&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;disp&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;backend 选择&quot;, &quot;s&quot;: &quot;requirement · autotune&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;jit&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;JIT / AOT&quot;, &quot;s&quot;: &quot;JitSpec · ninja · .so&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gpu&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;GPU&quot;, &quot;s&quot;: &quot;SM75 ~ SM121&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hand&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;手写 / DSL&quot;, &quot;s&quot;: &quot;include/ · CuTe&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cake&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;CAKE 产物&quot;, &quot;s&quot;: &quot;生成的 CUDA · 清单&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cub&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;预编译 cubin&quot;, &quot;s&quot;: &quot;TRT-LLM · 下载&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;comp&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;CAKE 编译器&quot;, &quot;s&quot;: &quot;不在本仓库&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;fw&quot;, &quot;b&quot;: &quot;api&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;api&quot;, &quot;b&quot;: &quot;disp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;disp&quot;, &quot;b&quot;: &quot;jit&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;jit&quot;, &quot;b&quot;: &quot;gpu&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hand:t&quot;, &quot;b&quot;: &quot;jit:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cake:t&quot;, &quot;b&quot;: &quot;jit:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cub:t&quot;, &quot;b&quot;: &quot;jit:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;comp:t&quot;, &quot;b&quot;: &quot;cake:b&quot;, &quot;t&quot;: &quot;导出&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>深色方框是仓库外的东西。CAKE 编译器和仓库之间只有一条单向的“导出”边：FlashInfer 运行时完全不依赖它。支持的架构见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/README.md#L65">README 的 GPU 表</a>，版本打包见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/pyproject.toml#L15">pyproject.toml</a>。</figcaption></figure>
+<h3 id="s2-4">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>FlashInfer 核心</th>
+<th>CAKE 产物层</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>给 serving 框架提供统一 API、最快的 kernel</td>
+<td>用 agent 批量产出超过专家水平的 kernel</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>attention、GEMM、MoE、采样、通信；prefill/decode；FP8/FP4 量化</td>
+<td>同样的算子，再加上反向传播（训练）和融合 kernel</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>参数组合爆炸；每代硬件一套 ISA</td>
+<td>单个算子数百个程序，每架构一份</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>CUDA Graph、<code>torch.compile</code> 兼容；安装包不能太大；包目录可能只读</td>
+<td>下游要能脱离 FlashInfer 构建；浮点语义不能被 fast-math 改掉</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>JIT + 缓存；<code>@backend_requirement</code>；plan/run</td>
+<td>内容寻址的文件名、清单校验、路由表、运行期 cost model</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>Apache-2.0，含第三方例外</td>
+<td>生成代码带 Apache-2.0 头；编译器未公开</td>
+</tr>
+</tbody>
+</table></div>
+<p>后面每一章都在解释这张表的某一格是怎么落地的。</p>
+<h2 id="s3">调用主干：一次 decode 怎么跑到 GPU 上</h2>
+<h3 id="s3-1">职责划分</h3>
+<p>项目用三层把“框架”和“kernel”隔开：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>目录</th>
+<th>规则</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kernel 模板</td>
+<td><code>include/flashinfer/</code></td>
+<td>只收裸指针，<strong>不准 include Torch 头文件</strong>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L655">Framework Separation</a>）</td>
+</tr>
+<tr>
+<td>绑定</td>
+<td><code>csrc/</code></td>
+<td>通过 TVM-FFI 接收张量、做校验、发起 launch</td>
+</tr>
+<tr>
+<td>Python</td>
+<td><code>flashinfer/</code></td>
+<td>公开 API、参数校验、backend 选择、JIT 模块生成</td>
+</tr>
+</tbody>
+</table></div>
+<p>这里的绑定层用 TVM-FFI 而不是 pybind。好处是 ABI 跨语言，kernel 不绑死 PyTorch（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L1142">TVM-FFI 说明</a>）。CAKE 生成的 binding 走的也是同一套接口。</p>
+<h3 id="s3-2">一条真实路径</h3>
+<p>README 里最短的例子是 <code>flashinfer.single_decode_with_kv_cache(q, k, v)</code>。下面按步骤走一遍。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ single_decode_with_kv_cache 的第一次调用</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;公开 API&quot;, &quot;s&quot;: &quot;decode.py&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mod&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;get_*_module&quot;, &quot;s&quot;: &quot;functools.cache&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gen&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;gen_*_module&quot;, &quot;s&quot;: &quot;渲染 jinja&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;spec&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;JitSpecNvcc&quot;, &quot;s&quot;: &quot;ninja 规则&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;so&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;.so 缓存&quot;, &quot;s&quot;: &quot;cached_ops/&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;op&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;custom op&quot;, &quot;s&quot;: &quot;torch.library&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;kern&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;kernel 模板&quot;, &quot;s&quot;: &quot;include/…/decode.cuh&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;api&quot;, &quot;b&quot;: &quot;mod&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mod&quot;, &quot;b&quot;: &quot;gen&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gen&quot;, &quot;b&quot;: &quot;spec&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;spec&quot;, &quot;b&quot;: &quot;so&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;so&quot;, &quot;b&quot;: &quot;op&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;kern:t&quot;, &quot;b&quot;: &quot;spec:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 150.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="api"><div class="step-title">1. 进入公开 API</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py#L1118">single_decode_with_kv_cache</a> 校验形状和 dtype，选后端。走默认路径时，它用参数元组去要模块：<code>get_single_decode_module(q.dtype, k.dtype, q.dtype, head_dim, head_dim, 位置编码, 滑窗, soft_cap)</code>。</p>
+</div><div class="step" data-hl="api,mod"><div class="step-title">2. 内存缓存</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py#L402">get_single_decode_module</a> 有 <code>@functools.cache</code>：同一组参数在进程内只构建一次。这是两级缓存的第一级。</p>
+</div><div class="step" data-hl="mod,gen"><div class="step-title">3. 生成规格</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/attention/modules.py#L486">gen_single_decode_module</a> 计算唯一 URI，把 jinja 模板渲染成类型特化的配置（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/batch_decode_customize_config.jinja">配置模板</a>），源文件写进可写的生成目录，不碰包目录。</p>
+</div><div class="step" data-hl="gen,spec,kern"><div class="step-title">4. 构建</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L739">gen_jit_spec</a> 拼好 nvcc 参数（默认带 <code>-use_fast_math</code>，<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L787">core.py</a>）。<code>build_and_load</code> 在文件锁里写 <code>build.ninja</code> 并跑 ninja。头文件依赖由 ninja 跟踪，所以改了 <code>.cuh</code>，下次运行自动重编。</p>
+</div><div class="step" data-hl="spec,so,op"><div class="step-title">5. 加载并注册</div><p><code>.so</code> 通过 <code>tvm_ffi.load_module</code> 加载，<code>module.run</code> 再包成 <code>torch.library</code> custom op（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L455">register_custom_op</a>），这样 <code>torch.compile</code> 能看见它的副作用。</p>
+</div><div class="step" data-hl="so,kern"><div class="step-title">6. 进入 kernel</div><p>launch 到 GPU 的是 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/attention/decode.cuh#L221">SingleDecodeWithKVCacheKernel</a>。多数 serving 路径用的是批量版本 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py#L1354">BatchDecodeWithPagedKVCacheWrapper</a>，结构相同，只是多了 plan 这一步。</p>
+</div></div></div>
+<h3 id="s3-3">核心抽象</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>抽象</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>JitSpec</code></td>
+<td>kernel 模块的生命周期：<code>try_load</code> / <code>build</code> / <code>load</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L51">core.py</a></td>
+</tr>
+<tr>
+<td><code>CompilationContext</code></td>
+<td>决定编译哪些 CUDA 架构</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/compilation_context.py#L74">compilation_context.py</a></td>
+</tr>
+<tr>
+<td>plan/run 包装类</td>
+<td><code>plan()</code> 做一次调度，<code>run()</code> 只 launch，适合 CUDA Graph</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py#L1354">decode.py</a></td>
+</tr>
+<tr>
+<td><code>paged_kv_t</code></td>
+<td>分页 KV cache 的设备侧视图</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/page.cuh#L38">page.cuh</a></td>
+</tr>
+<tr>
+<td><code>@backend_requirement</code></td>
+<td>声明每个后端的能力，并做 <code>auto</code> 选择</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L1364">utils.py</a></td>
+</tr>
+<tr>
+<td><code>@flashinfer_api</code></td>
+<td>日志、trace、公开 API 登记</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/api_logging.py#L2400">api_logging.py</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><ul>
+<li><strong>两级缓存不是同一件事。</strong> <code>functools.cache</code> 只在进程内；磁盘上的 <code>.so</code> 由 ninja 判断是否过期。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L577">try_load</a> 只把 AOT 产物当作可信，JIT 路径的新鲜度交给 ninja。</li>
+<li><strong>CAKE 走的不是这条 <code>gen_*_module</code> 流程。</strong> 它不渲染模板，直接编译已经生成好的单一 <code>.cu</code>，但最后同样落到 <code>gen_jit_spec</code>。</li>
+</ul>
+</div>
+<h2 id="s4">JIT 与分发</h2>
+<h3 id="s4-1">难点</h3>
+<p>JIT 要同时满足几个互相牵制的条件：多进程并发时不能重复编译；包目录可能只读；同一台机器可能插着不同架构的 GPU；离线环境不能现场编译。</p>
+<h3 id="s4-2">生命周期</h3>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L372">build_and_load</a> 是所有工具链共用的模板方法：先 <code>try_load</code>；拿不到就进文件锁，再查一次（别的进程可能刚编完）；设置了 <code>FLASHINFER_DISABLE_JIT</code> 就抛 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L38">MissingJITCacheError</a>；否则 build 再 load。</p>
+<p>子类各管一种工具链：<code>JitSpecNvcc</code> 管 nvcc/ninja，<code>JitSpecCuteDsl</code> 管 CuTe DSL。可选的 TIRx 后端有自己的私有 spec（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L504">三层结构说明</a>）。</p>
+<p>目录规则很严格：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>目录</th>
+<th>可写</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FLASHINFER_GEN_SRC_DIR</code></td>
+<td>是</td>
+<td>渲染出的源文件</td>
+</tr>
+<tr>
+<td><code>FLASHINFER_JIT_DIR</code></td>
+<td>是</td>
+<td>编译出的 <code>.so</code></td>
+</tr>
+<tr>
+<td><code>FLASHINFER_CSRC_DIR</code></td>
+<td>否</td>
+<td>只读的模板和源文件</td>
+</tr>
+<tr>
+<td><code>FLASHINFER_AOT_DIR</code></td>
+<td>否</td>
+<td>预编译产物</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些路径定义在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/env.py#L396">env.py</a>。</p>
+<h3 id="s4-3">架构目标</h3>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/compilation_context.py#L74">CompilationContext</a> 优先读 <code>FLASHINFER_CUDA_ARCH_LIST</code>，否则探测本机所有 GPU。JIT 模块用 <code>supported_major_versions</code> 声明自己能编译的 SM 版本。SM107 有个细节：CUTLASS 不一定认识它，<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/compilation_context.py#L29">cutlass_supports_sm107</a> 要同时确认 CUTLASS 头文件和 nvcc 都支持。</p>
+<h3 id="s4-4">三条分发路径</h3>
+
+<figure class="flow"><div class="flow-head">同一个 kernel 的三种到达方式<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;同一个 kernel 的三种到达方式&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;req&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;build_and_load&quot;, &quot;s&quot;: &quot;try_load 优先&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;aot&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;AOT 预编译&quot;, &quot;s&quot;: &quot;cubin / jit-cache 包&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;jit&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;现场 JIT&quot;, &quot;s&quot;: &quot;nvcc + ninja&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dl&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;下载 cubin&quot;, &quot;s&quot;: &quot;TRT-LLM 预编译&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;so&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;tvm_ffi 模块&quot;, &quot;s&quot;: &quot;module.run&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;req:r&quot;, &quot;b&quot;: &quot;aot:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;req&quot;, &quot;b&quot;: &quot;jit&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;req:r&quot;, &quot;b&quot;: &quot;dl:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;aot:r&quot;, &quot;b&quot;: &quot;so:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;jit&quot;, &quot;b&quot;: &quot;so&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;dl:r&quot;, &quot;b&quot;: &quot;so:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 220.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 170.0}}"></div><figcaption><code>flashinfer-python</code> 只含源码；<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer-cubin/pyproject.toml">flashinfer-cubin</a> 带预编译二进制；<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer-jit-cache/pyproject.toml">flashinfer-jit-cache</a> 是 shim，依赖按架构构建的 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer-jit-cache-provider/pyproject.toml">provider</a> 包。多架构场景由 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py#L401">_HeterogeneousAOTModule</a> 按当前设备选模块。下载地址由 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cubin_loader.py#L39">FLASHINFER_CUBINS_REPOSITORY</a> 决定。</figcaption></figure>
+<p>AOT 的注册集中在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/aot.py">aot.py</a>。实验性代码不准注册到这里（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/README.md">实验策略</a>）。但稳定区的 CAKE 模块可以注册：<code>aot.py</code> 里能看到 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/aot.py#L52">gen_cake_fmha_compat_module</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/aot.py#L866">gen_cake_kda_decode_module</a> 这样的条目。</p>
+
+<div class="callout info"><div class="callout-title">开发时的好处</div><p>改 <code>.cuh</code> 不用重装，下次调用自动重编。清缓存用 <code>rm -rf ~/.cache/flashinfer/</code>，看编译过程用 <code>FLASHINFER_JIT_VERBOSE=1</code>。完整列表在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L9">Quick Reference</a>。</p>
+</div>
+<h2 id="s5">kernel 版图与后端选择</h2>
+<h3 id="s5-1">主要家族</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>家族</th>
+<th>Python 入口</th>
+<th>设备代码</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Attention</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py">decode.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/prefill.py">prefill.py</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/attention">attention/</a></td>
+<td>分页 KV cache、MLA、cascade、POD</td>
+</tr>
+<tr>
+<td>GEMM</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/gemm/gemm_base.py">gemm_base.py</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/gemm">gemm/</a></td>
+<td>BF16、FP8、NVFP4/MXFP4、分组</td>
+</tr>
+<tr>
+<td>融合 MoE</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/fused_moe">fused_moe/</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/csrc/fused_moe">csrc/fused_moe/</a></td>
+<td>路由 + 专家 + 累加</td>
+</tr>
+<tr>
+<td>专家并行 MoE</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/moe_ep">moe_ep/</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/moe_ep/kernel_src">kernel_src/</a></td>
+<td>Split 和 Mega 两种模式</td>
+</tr>
+<tr>
+<td>通信</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/comm">comm/</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/comm">comm/</a></td>
+<td>AllReduce、MNNVL、DCP all-to-all</td>
+</tr>
+<tr>
+<td>线性注意力</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/kda.py">kda.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/gdn_prefill.py">gdn_prefill.py</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/csrc/kda">csrc/kda/</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn">csrc/gdn/</a></td>
+<td>KDA、Gated DeltaNet，有递归状态</td>
+</tr>
+<tr>
+<td>采样</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/sampling.py">sampling.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_sampling.py">cake_sampling.py</a></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/sampling.cuh">sampling.cuh</a></td>
+<td>不排序的 top-k/top-p</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5-2">同一个算子，多个 kernel 来源</h3>
+<p>这是理解仓库的关键。下面这些实现可以同时存在，通过 <code>backend=</code> 参数区分：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>写法</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>手写 CUDA 模板</td>
+<td>C++ 模板，jinja 特化</td>
+<td><code>fa2</code>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/attention/hopper.cuh">Hopper FA3</a></td>
+</tr>
+<tr>
+<td>CUTLASS</td>
+<td>CUTLASS 的 C++ 模板</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/include/flashinfer/gemm/fp8_gemm_cutlass.h">fp8_gemm_cutlass</a></td>
+</tr>
+<tr>
+<td>CuTe DSL</td>
+<td>Python DSL，运行时编译</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cute_dsl">cute_dsl/</a></td>
+</tr>
+<tr>
+<td>Prims-TS</td>
+<td>任务调度式 DSL，已 vendor</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/prims_ts">prims_ts/</a></td>
+</tr>
+<tr>
+<td>TRT-LLM cubin</td>
+<td>下载预编译二进制</td>
+<td><code>trtllm-gen</code></td>
+</tr>
+<tr>
+<td>cuDNN</td>
+<td>NVIDIA 库</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cudnn">cudnn/</a></td>
+</tr>
+<tr>
+<td>CAKE</td>
+<td>生成的 CUDA</td>
+<td><code>backend=&quot;cake&quot;</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5-3">选择逻辑</h3>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L1364">@backend_requirement</a> 给一个函数登记每个后端的检查函数和 <code>heuristic_func</code>。调用时校验后端是否支持这个形状和架构；<code>backend=&quot;auto&quot;</code> 时跑启发式；开了 autotune 就在候选里实测。以 <code>bmm_bf16</code> 为例，<code>cake</code> 是它的一个后端，登记的检查函数是 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/gemm/gemm_base.py#L1017">_cake_bmm_bf16_requirement</a>，而 docstring 明确写着 <code>&quot;cake&quot;</code> 是显式才能选的（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/gemm/gemm_base.py#L1152">gemm_base.py</a>）。</p>
+<p>Attention 老路径的选择在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L629">determine_attention_backend</a>。autotuner 在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/autotuner/autotuner.py">autotuner.py</a>，已知不合法的组合由 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/tactics_blocklist.py#L45">TacticsBlocklist</a> 提前过滤。</p>
+<h3 id="s5-4">实验轨道</h3>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/README.md">实验策略</a> 区分两件事：实验 <strong>API</strong> 放在核心里，用 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/api_logging.py#L2687">@flashinfer_experimental_api</a> 标记；实验 <strong>backend</strong> 放在 <code>flashinfer/experimental/</code>。规则是：</p>
+<ul>
+<li>显式调用不需要环境变量，只警告一次。</li>
+<li><code>backend=&quot;auto&quot;</code> 不会选实验后端，除非设置 <code>FLASHINFER_ALLOW_EXPERIMENTAL_AUTO_BACKENDS=1</code>。</li>
+<li>实验代码只走 JIT，不进 AOT。</li>
+<li>核心模块不准在顶层 import <code>flashinfer.experimental</code>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/CLAUDE.md">实验目录规则</a>）。</li>
+</ul>
+<p>CAKE 的很多包都在这条轨道上，这也解释了为什么 <code>experimental/</code> 下有 28 个 <code>cake_*</code> 目录，外加一个 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/cake">cake/</a> 命名空间。</p>
+<h2 id="s6">CAKE 是什么：问题与边界</h2>
+<h3 id="s6-1">它要解决的问题</h3>
+<p><strong>【论文】</strong> CAKE 的全称是 <em>Compiler–Agent Co-Design for Frontier Kernel Evolution</em>，第一作者也是 FlashInfer 的作者之一。论文认为有两条路一直各走各的：</p>
+<ul>
+<li><strong>kernel agent</strong> 把编译器当黑盒。它们改进提案和搜索，但环境只回报编译错误、对错、总耗时。这些信号说不清“是哪个程序决策导致了同步失败或流水线停顿”。</li>
+<li><strong>编程语言</strong> 不是为 agent 设计的。tile 级 DSL 把 warp 分工、barrier 编排、内存层级藏起来，而这些正是专家 kernel 和普通 kernel 的差别；底层 DSL 暴露了这些控制，却要求掌握一套 layout 演算，agent 容易出错，出错了也难定位。</li>
+</ul>
+<p>CAKE 的回答是三个承诺：</p>
+<ol>
+<li><strong>agent 改的是有类型的 IR，不是裸 CUDA。</strong> 硬件决策在生成代码之前就能被检查。</li>
+<li><strong>编译器返回定位到具体程序位置的诊断，不是一个通过/失败的比特。</strong> 便宜的分析先筛掉候选，不浪费 GPU 时间。</li>
+<li><strong>harness 本身也在进化。</strong> 反复出现的失败变成新的 verifier 规则、校准任务或 IR 原语，而且要过语料回归测试。</li>
+</ol>
+<h3 id="s6-2">名字的由来和时间线</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>时间</th>
+<th>事件</th>
+<th>来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-07-29</td>
+<td>进度追踪 issue 开张，自述“CAKE harness + claude/codex agent”</td>
+<td><a href="https://github.com/flashinfer-ai/flashinfer/issues/4254">#4254</a></td>
+</tr>
+<tr>
+<td>2026-08-03</td>
+<td>首批 CAKE kernel 之一合并：B200 上的 KDA prefill</td>
+<td><a href="https://github.com/flashinfer-ai/flashinfer/pull/4262">#4262</a></td>
+</tr>
+<tr>
+<td>2026-08-12</td>
+<td>论文上线，列出 4 个 upstream PR</td>
+<td><a href="https://arxiv.org/abs/2608.12629">arXiv</a></td>
+</tr>
+<tr>
+<td>2026-10-15</td>
+<td>下游用户要求 CAKE 包能脱离 FlashInfer 构建</td>
+<td><a href="https://github.com/flashinfer-ai/flashinfer/issues/6553">#6553</a></td>
+</tr>
+<tr>
+<td>2026-10 起</td>
+<td>“deslop”系列：清理生成代码的重复和死代码</td>
+<td><a href="https://github.com/flashinfer-ai/flashinfer/issues/6635">示例 #6635</a></td>
+</tr>
+<tr>
+<td>2026-11-06</td>
+<td>标题含 cake 的 PR 累计 2,191 个（含未合并，GitHub 搜索结果）</td>
+<td>GitHub 搜索</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>【推断】</strong> 编译器早期的内部名字很可能叫 Loom。证据有三处：#4274 的描述写着 “CAKE-generated Loom schedules”；<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/mamba/cake_ssd_combined.py#L1110">cake_ssd_combined.py</a> 的注释引用了 <code>loom/examples/weave/...</code>；GDN 的 README 提到生成器里的 <code>loom_</code> 前缀在导出时被映射成 <code>cake_</code>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn/cake/README.md#L47">README</a>）。</p>
+<h3 id="s6-3">编译器和仓库的边界</h3>
+<p>这张图是全文最重要的一张。深色部分你在 FlashInfer 里看不到。</p>
+
+<figure class="flow"><div class="flow-head">CAKE 的边界：哪些在仓库里，哪些不在<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;CAKE 的边界：哪些在仓库里，哪些不在&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;ag&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;kernel agent&quot;, &quot;s&quot;: &quot;读诊断、改 IR&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ir&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Cake IR&quot;, &quot;s&quot;: &quot;schedule 程序&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;an&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;分析与验证&quot;, &quot;s&quot;: &quot;verifier · cost model&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cg&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;codegen&quot;, &quot;s&quot;: &quot;cake.codegen&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ex&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;exporter&quot;, &quot;s&quot;: &quot;cake.library_export&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;src&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;生成的 CUDA&quot;, &quot;s&quot;: &quot;kernel + binding&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;host 路由表&quot;, &quot;s&quot;: &quot;cake_jit · windows&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;man&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;构建清单&quot;, &quot;s&quot;: &quot;build.json&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fac&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;公开门面&quot;, &quot;s&quot;: &quot;flashinfer/cake_*.py&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;test&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;测试与基准&quot;, &quot;s&quot;: &quot;tests/ · benchmarks/&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ag&quot;, &quot;b&quot;: &quot;ir&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ir&quot;, &quot;b&quot;: &quot;an&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;an&quot;, &quot;b&quot;: &quot;cg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cg&quot;, &quot;b&quot;: &quot;ex&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;an:t&quot;, &quot;b&quot;: &quot;ag:t&quot;, &quot;t&quot;: &quot;诊断&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;ex&quot;, &quot;b&quot;: &quot;src&quot;, &quot;t&quot;: &quot;导出&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;test&quot;, &quot;b&quot;: &quot;fac&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fac&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;man&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;man&quot;, &quot;b&quot;: &quot;src&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [{&quot;c0&quot;: 2.0, &quot;r0&quot;: 1.0, &quot;c1&quot;: 4.0, &quot;r1&quot;: 1.0, &quot;t&quot;: &quot;exporter 写入&quot;, &quot;k&quot;: &quot;pass&quot;}], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 166.0}}"></div><figcaption>下排箭头表示“谁引用谁”。绿框是 exporter 写入的导出物，<strong>不要手改</strong>，不少文件明确写着不要编辑（如 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_build.py#L39">cake_build.py</a>）。蓝色是人工维护的部分。深色节点的名字部分来自产物：<code>cake.codegen</code> 见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_device_helpers/cake_add_f32x2_74578aa6314ab32b.cuh#L17">device helper</a>，<code>cake.library_export.v5</code> 见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/fused_moe/cake/cake_mxfp4_situ_moe_kernels.py#L54">清单 schema</a>。</figcaption></figure>
+<p>能从产物里确认的编译器痕迹：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>痕迹</th>
+<th>说明</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python 包名 <code>cake.codegen</code></td>
+<td>生成 device helper 的模块</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_device_helpers/cake_add_f32x2_74578aa6314ab32b.cuh#L17">helper 文件头</a></td>
+</tr>
+<tr>
+<td><code>cake.examples.cake.*</code></td>
+<td>kernel 的 IR 源文件放在 examples 下</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/fused_moe/cake/cake_mxfp4_situ_moe_plan.py#L720">plan 文件</a></td>
+</tr>
+<tr>
+<td><code>cake.library_export.v5</code></td>
+<td>导出格式，已迭代到第 5 版</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/fused_moe/cake/cake_mxfp4_situ_moe_kernels.py#L54">schema 常量</a></td>
+</tr>
+<tr>
+<td><code>generator.cake_revision</code></td>
+<td>每个包记录生成它的编译器 commit</td>
+<td><code>build.json</code>（如 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/build.json#L1">rmsnorm</a>）</td>
+</tr>
+<tr>
+<td><code>CAKE-956</code> 之类的编号</td>
+<td>内部工单</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/mamba/cake_ssd_combined.py#L1113">cost model 注释</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>54 个清单记录了 40 多个不同的 <code>cake_revision</code>，渲染时间从 2026-10-20 到 11-06。也就是说，各个包是独立、频繁地从编译器重新导出的。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 仓库收到的是蛋糕，不是烤箱</div><ul>
+<li><strong>烤箱</strong> = CAKE 编译器和 harness，在 NVIDIA 内部。</li>
+<li><strong>配方</strong> = Cake IR schedule，同样不公开。</li>
+<li><strong>蛋糕</strong> = 生成的 <code>_kernel.cu</code> 和 <code>_binding.cu</code>，就是你在仓库里看到的。</li>
+<li><strong>成分表</strong> = <code>build.json</code>：写明原料的 sha256、用什么火候（nvcc 参数）。</li>
+<li><strong>菜单</strong> = <code>cake_jit.py</code> 的路由表：什么规格的订单上哪块蛋糕。</li>
+</ul>
+<p>论文也说下游用户“不依赖 Cake”。追踪 issue 的原话是 “we will bake it for you”：你可以点单，但拿不到烤箱。</p>
+</div>
+<h2 id="s7">Cake IR：把硬件决策写成程序</h2>
+<p><strong>本章的语言设计来自【论文】</strong>。仓库里没有 IR 源码，所以我用真实生成代码做对照，让你能从产物反推 IR 概念。</p>
+<h3 id="s7-1">设计思路：描述 schedule，不是描述算法</h3>
+<p><strong>【论文】</strong> Cake IR 记录的是“机器该怎么被驱动”：哪些 warp 担任什么角色，哪些 buffer 分几级暂存，哪个 barrier 管哪次交接，哪种指令形式吃哪个操作数。分工的原则是：<strong>schedule 说“要发生什么”，lowering 推导“怎么做”</strong>。barrier 地址、phase 位、TMEM 偏移、描述符编码、warp 编号，都由声明算出来，agent 不用手写。</p>
+<p>论文 Figure 3 的片段，简化如下：</p>
+<pre><code class="language-python">@cake.schedule()
+def fmha_fwd(lm, Q: LM.tma3d, O: LM.tma2d, seqlen_q: LM.i32):
+    pool = lm.smem(98304)                              # 声明资源，不写裸地址
+    smem_q = pool.view(offset=0, shape=(128, 128), dtype=lm.bf16, stage=3)
+    tmem_acc = lm.tmem(cols=0, width=128, shape=(128, 128), dtype=lm.f32)
+
+    load, mma = lm.role(warps=[0]), lm.role(warps=[1])  # 声明角色
+    pipe = lm.pipeline(stages=3)
+    q_full = lm.barrier(count=3, prod=[load], cons=[mma], init_count=1, pipeline=pipe)
+
+    with load:
+        for stage in lm.range(0, 3):
+            smem_q.tma_load(Q, coords=(0, 0, stage), stage=stage, barrier=q_full)
+    with mma:
+        for stage in lm.range(0, 3):
+            lm.wait(q_full, stage=stage)
+            lm.fence_proxy()
+            lm.mma(tmem_acc, smem_q[stage], smem_q[stage], init=(stage == 0))
+</code></pre>
+<p>简化自 CAKE 论文 Figure 3。</p>
+<p>这段程序有四个性质撑起了后面的分析：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>性质</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>类型检查的词汇表</td>
+<td>计算、内存移动、同步、warp 控制都是固定词汇，不能嵌 C 或 PTX</td>
+</tr>
+<tr>
+<td>声明式资源</td>
+<td>内存区、同步状态、流水线只声明一次，IR 知道每个 buffer 的形状、类型、寿命</td>
+</tr>
+<tr>
+<td>显式角色</td>
+<td>warp 组有名字，跨角色交接都看得见</td>
+</tr>
+<tr>
+<td>自动推导元数据</td>
+<td>声明的机械性后果由 lowering 算出</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7-2">一个反直觉的决定：不要 layout</h3>
+<p><strong>【论文】</strong> 近年的编译器都把 layout 做成代数对象：CuTe 的 layout 代数、Triton 的 F2 线性 layout、Axe 的命名轴。CAKE 走相反的路：<strong>layout 不是 IR 的一等公民</strong>。agent 直接写下具体承诺（SMEM 视图偏移、操作数字节偏移、TMEM 列范围、swizzle 标记、TMA 描述符坐标），由编译器判断这些承诺沿数据流是否一致、是否满足指令约束。</p>
+<p>取舍很清楚：放弃表达力上的优雅，换来<strong>编辑界面具体、错误容易定位</strong>。这是为 agent 而不是为人设计的。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>语言</th>
+<th>硬件控制</th>
+<th>layout 负担</th>
+<th>对 agent 的问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Triton、cuTile 等 tile DSL</td>
+<td>被隐藏</td>
+<td>低</td>
+<td>写不出专家级 schedule</td>
+</tr>
+<tr>
+<td>CuTe DSL</td>
+<td>完全暴露</td>
+<td>高，要掌握 layout 代数</td>
+<td>易错，错误难定位</td>
+</tr>
+<tr>
+<td>裸 CUDA + PTX</td>
+<td>完全暴露</td>
+<td>手算</td>
+<td>结构不可分析</td>
+</tr>
+<tr>
+<td>Cake IR</td>
+<td>显式</td>
+<td>写具体值，编译器验证</td>
+<td>词汇表要持续扩充</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7-3">先认识这些词</h3>
+<p>读生成代码需要这几个硬件术语：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>术语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CTA / cluster</td>
+<td>一个 thread block。cluster 是可以共享内存、协同工作的一组 CTA</td>
+</tr>
+<tr>
+<td>warp</td>
+<td>32 个线程。warp 分工就是让不同 warp 干不同的活：搬数据、发 MMA、写结果</td>
+</tr>
+<tr>
+<td>SMEM</td>
+<td>CTA 内的共享内存，也是数据进入张量核之前的暂存区</td>
+</tr>
+<tr>
+<td>TMEM</td>
+<td>Blackwell 新增的张量内存，存放累加结果，按列分配</td>
+</tr>
+<tr>
+<td>TMA</td>
+<td>张量内存加速器，由一个线程发起的异步批量搬运</td>
+</tr>
+<tr>
+<td>mbarrier</td>
+<td>SMEM 里的异步 barrier，用 phase 位区分轮次</td>
+</tr>
+<tr>
+<td>MMA</td>
+<td>张量核的矩阵乘指令。Blackwell 上是 <code>tcgen05.mma</code></td>
+</tr>
+<tr>
+<td>PDL</td>
+<td>可编程依赖 launch：后一个 kernel 不必等前一个完全结束就能排上</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7-4">从生成代码反推 IR</h3>
+<p>下面用一个真实程序对照：NVFP4 SVDQuant GEMM 的 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu">05bda08 这个 kernel</a>。<strong>codegen 把 IR 里的名字原样留在了注释和变量名里</strong>，所以它是观察 IR 的好窗口。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>IR 概念（论文）</th>
+<th>生成代码里的样子</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lm.role(...)</code></td>
+<td><code>// ---- Role: mma ----</code> 和 <code>if (warp == 0)</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L438-L439">L438</a></td>
+</tr>
+<tr>
+<td><code>lm.pipeline</code> + <code>lm.barrier</code></td>
+<td><code>// --- pipeline 'tma_pipe' ---</code>，接一串 <code>mbarrier_init</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L373">L373</a></td>
+</tr>
+<tr>
+<td><code>lm.smem</code> 视图</td>
+<td><code>smem_a = smem_raw + 1024</code>，偏移已算好</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L338-L339">L338</a></td>
+</tr>
+<tr>
+<td><code>lm.tmem</code></td>
+<td><code>// TMEM alloc (128 columns, 80 used)</code>，接 <code>tcgen05.alloc</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L418-L422">L418</a></td>
+</tr>
+<tr>
+<td><code>tma_load(..., barrier=)</code></td>
+<td><code>mbarrier_arrive_expect_tx</code> + <code>cp.async.bulk.tensor.3d…</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L543-L547">L543</a></td>
+</tr>
+<tr>
+<td><code>lm.wait</code> + <code>fence_proxy</code></td>
+<td><code>mbarrier_wait_token</code> + <code>tcgen05.fence::after_thread_sync</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L451-L453">L451</a></td>
+</tr>
+<tr>
+<td><code>lm.mma</code></td>
+<td><code>tcgen05_mma_mxf4nvf4_bs(tmem_accum, …)</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L470">L470</a></td>
+</tr>
+<tr>
+<td>phase 位（自动推导）</td>
+<td><code>if (mma_stage == 15) { mma_stage = 0; _phase_tma_full ^= 1; }</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L478">L478</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>这个 kernel 有五个角色：<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L438">mma</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L518">scheduler</a>（这里空闲）、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L522">load</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L610">epilogue_load</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L614">epilogue</a>。它用 <code>__cluster_dims__(1,2,1)</code> 声明两个 CTA 组成一个 cluster（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L307">L307</a>），数据可以用 multicast 同时写进两个 CTA。</p>
+<h3 id="s7-5">一次 barrier 握手</h3>
+<p>这是 warp 分工 kernel 的核心模式，也是手写时最容易出错的地方。这个 kernel 的 <code>tma_pipe</code> 有 15 个 stage，每个 stage 一对 barrier。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 餐厅的传菜口</div><ul>
+<li><strong>传菜口的 15 个窗位</strong> = SMEM 里的 15 个 pipeline stage。</li>
+<li><strong>厨师</strong> = load 角色，用 TMA 异步把数据从全局内存搬进 SMEM。</li>
+<li><strong>服务员</strong> = mma 角色，取走数据交给张量核。</li>
+<li><strong>窗位上的“有菜”灯</strong> = <code>tma_full</code> barrier。</li>
+<li><strong>窗位上的“空了”灯</strong> = <code>tma_empty</code> barrier。</li>
+<li><strong>灯的颜色每一圈翻转一次</strong> = phase 位，所以第二圈不会把第一圈的旧信号当成新的。</li>
+</ul>
+<p>双方都不用互相等待：厨师可以连做几道，服务员也可以连端几道，只要窗位够用。这就是异步流水线的收益。</p>
+</div>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ tma_pipe 的一个 stage</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;ld&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;load warp&quot;, &quot;s&quot;: &quot;搬数据&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tma&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TMA 引擎&quot;, &quot;s&quot;: &quot;异步 cp.async&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sm&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;SMEM stage i&quot;, &quot;s&quot;: &quot;15 级环&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mma&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;mma warp&quot;, &quot;s&quot;: &quot;发指令&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tc&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;张量核 + TMEM&quot;, &quot;s&quot;: &quot;tcgen05.mma&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;tma_full[i]&quot;, &quot;s&quot;: &quot;数据到齐&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;tma_empty[i]&quot;, &quot;s&quot;: &quot;数据用完&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ld&quot;, &quot;b&quot;: &quot;tma&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tma&quot;, &quot;b&quot;: &quot;sm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sm&quot;, &quot;b&quot;: &quot;mma&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mma&quot;, &quot;b&quot;: &quot;tc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sm:b&quot;, &quot;b&quot;: &quot;f:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;f:r&quot;, &quot;b&quot;: &quot;mma:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;tc:b&quot;, &quot;b&quot;: &quot;e:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;e:l&quot;, &quot;b&quot;: &quot;ld:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 160.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="ld,e"><div class="step-title">1. 等窗位空出来</div><p>load 等 <code>tma_empty[i]</code>。它的初始 phase 取 1（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L526">L526</a>），所以第一圈不用真的等。</p>
+</div><div class="step" data-hl="ld,f"><div class="step-title">2. 声明要到多少字节</div><p>选出一个线程执行 <code>mbarrier_arrive_expect_tx(tma_full[i], 10240)</code>，告诉 barrier：这一轮有 10240 字节在路上（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L543">L543</a>）。</p>
+</div><div class="step" data-hl="ld,tma,sm"><div class="step-title">3. 发起异步搬运</div><p>A、B 和两组 scale factor 都用 <code>cp.async.bulk.tensor</code> 发出。A 用 multicast 写进 cluster 里的两个 CTA（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L547">L547</a>）。load 不等它完成，直接进入下一个 stage。</p>
+</div><div class="step" data-hl="tma,f,mma"><div class="step-title">4. 数据到齐</div><p>TMA 完成时按字节数自动 arrive。mma 用 <code>mbarrier_wait_token</code> 等 <code>tma_full[i]</code>，它之前已经 <code>try_wait</code> 过一次，这里复用那个结果（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L451">L451</a>）。</p>
+</div><div class="step" data-hl="mma,tc,sm"><div class="step-title">5. 发 MMA</div><p>先 <code>tcgen05.fence::after_thread_sync</code>，把 scale factor 拷进 TMEM，再由 elect 出的单个线程发 <code>tcgen05.mma</code>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L470">L470</a>）。</p>
+</div><div class="step" data-hl="tc,e"><div class="step-title">6. 归还窗位</div><p><code>elect_commit_cg1_multicast(tma_empty[i], 3)</code> 在张量核完成后通知 cluster 里的两个 CTA：这个 stage 空了（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L476">L476</a>）。</p>
+</div><div class="step" data-hl="mma,sm"><div class="step-title">7. 绕回</div><p><code>mma_stage</code> 到 15 归零，<code>_phase_tma_full</code> 翻转（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu#L478">L478</a>）。这些机械细节就是论文说的“由 lowering 推导，agent 不写”的部分。</p>
+</div></div></div>
+<h3 id="s7-6">设计原则和架构覆盖</h3>
+<p><strong>【论文】</strong> IR 的演化受八条原则约束：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>编号</th>
+<th>原则</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1</td>
+<td>Ergonomic</td>
+<td>编辑体验接近 NumPy/PyTorch</td>
+</tr>
+<tr>
+<td>P2</td>
+<td>Performance-transparent</td>
+<td>影响性能的硬件决策可见</td>
+</tr>
+<tr>
+<td>P3</td>
+<td>Canonical</td>
+<td>一种操作只有一种规范写法</td>
+</tr>
+<tr>
+<td>P4</td>
+<td>Statically type-checked</td>
+<td>类型规则约束 lowering</td>
+</tr>
+<tr>
+<td>P5</td>
+<td>Analysis-friendly</td>
+<td>暴露静态分析需要的信息</td>
+</tr>
+<tr>
+<td>P6</td>
+<td>Test-gated</td>
+<td>IR 改动要过 kernel 矩阵测试</td>
+</tr>
+<tr>
+<td>P7</td>
+<td>Analysis-consistent</td>
+<td>改数据模型必须同步改分析</td>
+</tr>
+<tr>
+<td>P8</td>
+<td>Hardware-grounded</td>
+<td>每个操作都写明硬件行为</td>
+</tr>
+</tbody>
+</table></div>
+<p>论文的架构覆盖表从 A100 的 <code>sm_80</code> 一直列到 DGX Spark 的 <code>sm_121a</code>，中间有 <code>sm_89</code>、<code>sm_90a</code>、<code>sm_100a</code>、<code>sm_103a</code>、<code>sm_120a</code>。编译器要求<strong>精确匹配目标</strong>，不做向下替换。<strong>【仓库】</strong> 产物比论文走得更远，已经出现 <code>sm_107a</code>（Rubin）和 <code>sm_110a</code>，见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_program.py#L76">TARGET_FLAGS</a>。</p>
+<p>IR 自己是“长出来”的：论文说它没有预先设计的词汇表，而是从一批生产 kernel 开始，由 agent 反复提炼模式、修改 IR、移植验证（论文 2.1 节和附录 A）。</p>
+<h2 id="s8">Harness 与进化循环</h2>
+<p><strong>本章除特别标注外都来自【论文】。</strong> 论文明确表示只描述验证器的契约和覆盖范围，不公开内部表示和判定过程。</p>
+<h3 id="s8-1">分析套件</h3>
+<p>harness 就是 Cake IR 周围面向 agent 的环境。对外接口是一份契约：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th>处置</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>程序安全</td>
+<td>编译前拦截</td>
+<td>同步、顺序、内存使用风险</td>
+</tr>
+<tr>
+<td>硬件一致性</td>
+<td>编译前拦截</td>
+<td>资源、指令、架构约束</td>
+</tr>
+<tr>
+<td>数据一致性</td>
+<td>编译前拦截</td>
+<td>数据流和生产者/消费者表示是否兼容</td>
+</tr>
+<tr>
+<td>调度语义</td>
+<td>编译前拦截</td>
+<td>schedule 的结构不变量</td>
+</tr>
+<tr>
+<td>数值验证</td>
+<td>执行时拦截</td>
+<td>和外部权威参考对比输出</td>
+</tr>
+<tr>
+<td>性能分析</td>
+<td>报告</td>
+<td>估算开销，归类瓶颈</td>
+</tr>
+<tr>
+<td>优化建议</td>
+<td>提示</td>
+<td>不阻塞编译</td>
+</tr>
+</tbody>
+</table></div>
+<p>分析是有边界的：它不证明全局 GPU 正确性，可能有误报和漏报；缺信息时显式报告，不当作通过。<strong>GPU 上的实测才是最终依据。</strong></p>
+<h3 id="s8-2">两层循环</h3>
+
+<figure class="flow"><div class="flow-head">内层进化 kernel，外层进化编译器<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;内层进化 kernel，外层进化编译器&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;task&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;工作负载契约&quot;, &quot;s&quot;: &quot;shape · oracle · 容差&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gen&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;生成候选&quot;, &quot;s&quot;: &quot;结构不同的 IR&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;chk&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;静态筛选&quot;, &quot;s&quot;: &quot;构造检查 · verifier&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cost&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;cost model 排序&quot;, &quot;s&quot;: &quot;省 GPU 时间&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;GPU 评估&quot;, &quot;s&quot;: &quot;oracle · CUPTI&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;diag&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;归因&quot;, &quot;s&quot;: &quot;该改谁？&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;evo&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;编译器进化&quot;, &quot;s&quot;: &quot;规则 · 原语 · 校准&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;corp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;语料回归&quot;, &quot;s&quot;: &quot;人工合并把关&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;task&quot;, &quot;b&quot;: &quot;gen&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gen&quot;, &quot;b&quot;: &quot;chk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;chk&quot;, &quot;b&quot;: &quot;cost&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cost&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;run:b&quot;, &quot;b&quot;: &quot;diag:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;diag:t&quot;, &quot;b&quot;: &quot;gen:b&quot;, &quot;t&quot;: &quot;改候选&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;diag&quot;, &quot;b&quot;: &quot;evo&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;evo&quot;, &quot;b&quot;: &quot;corp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;corp:t&quot;, &quot;b&quot;: &quot;gen:b&quot;, &quot;t&quot;: &quot;新 harness&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 124.0, &quot;nw&quot;: 165.0}}"></div><figcaption>一次运行分四步：生成结构不同的候选，用便宜分析过滤，在 oracle 上评估幸存者，再把证据路由给候选、verifier、cost model 或 IR 词汇表。外层把“不透明的运行时崩溃”变成 verifier 规则，把“反复出现的非法 lowering”变成静态检查，把“系统性误判”变成校准目标。</figcaption></figure>
+<p>论文有一个克制的设定：agent 和底层模型<strong>固定不变</strong>（实验都用 GPT-5.6-sol，xhigh），变的只有环境。这样提升才能归因到环境，而不是模型。<strong>【仓库】</strong> 追踪 issue 说 harness 配合 claude/codex agent 使用，所以实际生产用的 agent 不止一种。</p>
+<h3 id="s8-3">实验结果</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>实验</th>
+<th>结果</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Flash-KMeans 干净起步（B200，各 3 次，8000 万 token）</td>
+<td>Cake IR 1.144×，裸 CUDA/PTX 0.928×</td>
+<td>相对调优过的 FlashML 基线，取中位数</td>
+</tr>
+<tr>
+<td>同上，达到 plateau</td>
+<td>Cake IR 3/3，CUDA/PTX 0/3</td>
+<td>活跃时长 1.89h 对 3.73h</td>
+</tr>
+<tr>
+<td>KDA prefill</td>
+<td>2.05× 几何平均（6 个 B200 shape）</td>
+<td>对比官方 FlashKDA，通过 Kimi-K3 端到端 serving</td>
+</tr>
+<tr>
+<td>KDA decode</td>
+<td>1.14×</td>
+<td>对比 upstream FlashInfer，30 个 shape</td>
+</tr>
+<tr>
+<td>TinyGEMM</td>
+<td>kernel 时间下降 18–23%</td>
+<td>对比 TRT-LLM 派生实现，35 个 shape</td>
+</tr>
+<tr>
+<td>已知 kernel 复现</td>
+<td>11 项里 10 项达到或超过参考，最差 96.5%</td>
+<td>Cake IR 行数都少于参考实现</td>
+</tr>
+<tr>
+<td>KNN / KMeans 产品化</td>
+<td>1.418×、2.116×、1.803×</td>
+<td>共 434 个 shape，含 dispatcher 开销</td>
+</tr>
+</tbody>
+</table></div>
+<p>看这些数字时注意几点：干净起步实验样本只有每组 3 次；论文作者同时也是这些项目的作者；覆盖不均匀，大部分性能证据来自 B200，timing model 只校准了 B200 和 H100，其他架构会拒绝给出预测。</p>
+<h3 id="s8-4">从一个 shape 到一个库</h3>
+<p>这一节很值得细看，因为它直接解释了仓库里的路由表为什么长成那样。</p>
+<p>单个 shape 的优化可以很激进，但库要接受调用者传来的任何 shape。CAKE 把这当成<strong>独立阶段</strong>，目标函数、排序信号、失败模式都不同。</p>
+
+<figure class="flow"><div class="flow-head">泛化阶段：把种子 kernel 变成 dispatcher<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;泛化阶段：把种子 kernel 变成 dispatcher&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;seed&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;per-shape 种子&quot;, &quot;s&quot;: &quot;内层循环产出&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;buck&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;分桶&quot;, &quot;s&quot;: &quot;按实测聚类&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;vari&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;专用或共享变体&quot;, &quot;s&quot;: &quot;能复用就复用&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;guard&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;有序 guard&quot;, &quot;s&quot;: &quot;外加 fallback&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;val&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;留出验证&quot;, &quot;s&quot;: &quot;边界 · 尾部 · 缺口&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ship&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;路由表&quot;, &quot;s&quot;: &quot;每路一个 IR 程序&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;back&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;退回内层&quot;, &quot;s&quot;: &quot;错或慢的种子&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;seed&quot;, &quot;b&quot;: &quot;buck&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;buck&quot;, &quot;b&quot;: &quot;vari&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;vari&quot;, &quot;b&quot;: &quot;guard&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;guard&quot;, &quot;b&quot;: &quot;val&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;val&quot;, &quot;b&quot;: &quot;ship&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;val&quot;, &quot;b&quot;: &quot;back&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>三条关键规则：评分包含 dispatcher 开销；有效 shape 域在调参前就声明好，dispatcher 的谓词只能划分它，不能新增方便的评估行；能复用一个物理 schedule 就复用，换 schedule 必须有实测收益。对应到 FlashInfer 就是下一章的 <code>ROUTES</code> 和 <code>PROGRAM_WINDOWS</code>。</figcaption></figure>
+<p>论文 Figure 9 给了规模感：KNN build 的 112 个 shape 落到 8 个外层家族、80 条最终路由；Flash-KMeans 的 124 个 shape 落到 12 条路由。</p>
+<h2 id="s9">产物怎么进仓库</h2>
+<h3 id="s9-1">难点</h3>
+<p>生成的代码量巨大，而且会频繁重新导出。FlashInfer 要解决四件事：能审计（知道每个文件从哪来）、能校验（防止被改坏）、不污染 lint、能让下游脱离 FlashInfer 使用。</p>
+<h3 id="s9-2">五种交付形态</h3>
+<p>CAKE 进入仓库的方式演变过几轮，这几种现在<strong>同时存在</strong>。看到一个 CAKE kernel，先判断它属于哪种：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>特征</th>
+<th>例子</th>
+<th>能手改吗</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>A. 冻结源码</strong></td>
+<td>手写 loader，源文件头写着来源 commit</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_blackwell_softmax_rowwise.cu#L16-L22">softmax</a>，<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_blackwell_softmax.py">loader</a></td>
+<td>已经改过，头部有记录</td>
+</tr>
+<tr>
+<td><strong>B. 生成的 in-tree loader</strong></td>
+<td><code>flashinfer/jit/cake_&lt;op&gt;.py</code> 里一组 <code>CakeProgram</code> 常量</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_program.py#L134">CakeProgram</a></td>
+<td>否，exporter 字节级写入</td>
+</tr>
+<tr>
+<td><strong>C. 自包含包</strong></td>
+<td>一个目录：<code>build.json</code>、<code>cake_build.py</code>、<code>cake_jit.py</code>、<code>csrc/</code></td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend">rmsnorm</a></td>
+<td>否</td>
+</tr>
+<tr>
+<td><strong>D. 手工折叠</strong></td>
+<td>一份 manifest + 共享 kernel 体 + host 模板，靠 SASS 比对守住</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn/cake/README.md">GDN</a></td>
+<td>是，但要验证 SASS 等价</td>
+</tr>
+<tr>
+<td><strong>E. 产品注册表</strong></td>
+<td>带能力矩阵和兜底路线的注册表</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/api/cake_fmha.rst">cake_fmha</a>，<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_fmha/registry.json">registry</a></td>
+<td>否</td>
+</tr>
+</tbody>
+</table></div>
+<p>形态 D 值得单独说一下。GDN 的 README 第一段写明：kernel 由 Cake 生成，但现在的目录结构<strong>由人维护</strong>，靠逐个变体的 SASS 等价检查对照原始生成物（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn/cake/README.md#L1-L8">README</a>）。这是目前仓库里“手工接管生成代码”最规范的先例。它甚至记录了一个细节：同样的宏值，写在文件内和通过 <code>-D</code> 传入，nvcc 13.4 在 sm_103a 上排出的指令序列不同（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn/cake/README.md#L66">README</a>）。</p>
+<h3 id="s9-3">形态 C 的包结构</h3>
+<p>这是目前的主流形态，也是 <a href="https://github.com/flashinfer-ai/flashinfer/issues/6553">#6553</a> 的结果。提出这个 issue 的下游用 Bazel 预编译 CAKE 包，不依赖 FlashInfer 本身。在此之前，他们要维护约 1,040 行补丁和一个解析六种注册表格式的脚本。</p>
+
+<figure class="flow"><div class="flow-head">一个 cake_*_backend 包的内部结构<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一个 cake_*_backend 包的内部结构&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;fac&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;公开门面&quot;, &quot;s&quot;: &quot;flashinfer/cake_*.py&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;init&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;__init__.py&quot;, &quot;s&quot;: &quot;host API 实现&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;jit&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;cake_jit.py&quot;, &quot;s&quot;: &quot;MODULES · ROUTES&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;win&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;cake_windows.py&quot;, &quot;s&quot;: &quot;窗口与边界实测&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bld&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;cake_build.py&quot;, &quot;s&quot;: &quot;加载器 · 校验&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;man&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;build.json&quot;, &quot;s&quot;: &quot;cake-build/1&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;src&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;csrc/&quot;, &quot;s&quot;: &quot;kernel + binding&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fijit&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;FlashInfer JIT&quot;, &quot;s&quot;: &quot;可选依赖&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;fac&quot;, &quot;b&quot;: &quot;init&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;init&quot;, &quot;b&quot;: &quot;jit&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;jit&quot;, &quot;b&quot;: &quot;win&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;jit&quot;, &quot;b&quot;: &quot;bld&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bld&quot;, &quot;b&quot;: &quot;man&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bld&quot;, &quot;b&quot;: &quot;src&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;src&quot;, &quot;b&quot;: &quot;fijit&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 210.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 170.0}}"></div><figcaption><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/__init__.py">后端的 init 文件</a> 只依赖自身、<code>torch</code> 和 <code>tvm_ffi</code>。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train.py">核心门面</a> 只是几个 <code>@flashinfer_api</code> 的一行转发（注释解释了原因：公开 API 工具要读这里的签名）。</figcaption></figure>
+<p>各文件的分工：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+<th>关键点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>build.json</code></td>
+<td>每个库的源文件、sha256、nvcc 参数、<code>min_cuda</code>、<code>closure_sha256</code></td>
+<td><strong>唯一</strong>记录编译内容的地方</td>
+</tr>
+<tr>
+<td><code>cake_build.py</code></td>
+<td>优先加载 <code>aot/&lt;name&gt;.so</code>，否则走 JIT</td>
+<td>所有包字节相同；预编译路径不 import flashinfer</td>
+</tr>
+<tr>
+<td><code>cake_jit.py</code></td>
+<td><code>MODULES</code>、<code>ROUTES</code>、grid 规则、workspace 布局</td>
+<td>只放 host 计划，不放编译信息</td>
+</tr>
+<tr>
+<td><code>cake_windows.py</code></td>
+<td><code>PROGRAM_WINDOWS</code>、<code>EDGES</code>、文档片段</td>
+<td>由注册表渲染，把实测结果也存下来</td>
+</tr>
+<tr>
+<td><code>csrc/*_kernel.cu</code></td>
+<td>设备代码，<strong>单翻译单元</strong></td>
+<td>在 rmsnorm 包里不 include <code>flashinfer/</code> 头文件</td>
+</tr>
+<tr>
+<td><code>csrc/*_binding.cu</code></td>
+<td>TVM-FFI launcher：校验、launch</td>
+<td>只导出 <code>run</code> 和 <code>build_cuda_version</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s9-4">内容寻址</h3>
+<p>文件名里的 20 位十六进制是内容摘要，这是整个方案的基础：</p>
+<ul>
+<li><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_build.py#L168">_verified_sources</a> 在编译前逐个校验源文件 sha256，不一致直接报错。</li>
+<li><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_build.py#L183">jit_spec</a> 把 <code>closure_sha256</code> 的前 20 位放进 spec 名字，闭包一变就不会命中旧缓存。</li>
+<li>形态 B 的 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_program.py#L118">content_digest</a> 同样把源码字节和编译参数一起算进模块名。</li>
+</ul>
+<p>所以手改一个生成文件的直接后果是：<strong>下次加载就失败</strong>。这是有意的 fail-closed（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_build.py#L186">docstring</a>）。</p>
+<h3 id="s9-5">数值语义是契约的一部分</h3>
+<p>FlashInfer 的 JIT 默认开 <code>-use_fast_math</code>，CAKE 包的加载器显式关掉：<code>use_fast_math=False</code>。rmsnorm 包还逐库记录了 <code>--prec-div=true --prec-sqrt=true --ftz=false</code>。形态 B 还加 <code>--fmad=false</code>，文档的说法是“reproduces the numerics the sources were validated with”（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_program.py#L33">cake_program.py</a>）。</p>
+<p>原因很直接：验证是针对特定浮点语义做的，编译参数变了，验证结果就不算数。接手 CAKE 代码时<strong>不要统一编译参数</strong>。</p>
+<h3 id="s9-6">复用与 deslop</h3>
+<p>每个 kernel 一个翻译单元，意味着 helper 会被复制成千上万次。生成器后来把 helper 拆成内容寻址的头文件，放在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_device_helpers">cake_device_helpers/</a>（82 个），文件名是 <code>cake_&lt;name&gt;_&lt;sha256前16位&gt;.cuh</code>。</p>
+<p>但代码膨胀还是严重。“deslop”是项目的术语，指一轮轮清理生成代码。<a href="https://github.com/flashinfer-ai/flashinfer/issues/6635">#6635</a> 记录的 <code>cake_mxfp4_situ_moe</code> 单个家族曾有 600 个文件、54 万行，其中 16 个 stage 根本不可达。常见手法：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>手法</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>删不可达路由</td>
+<td>从注册表和 manifest 里移除</td>
+</tr>
+<tr>
+<td>折叠孪生 kernel</td>
+<td>如 <code>_nopdl</code> 版本：同一份源码，用宏区分，靠 sidecar 钉住被替换文件的摘要（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/experimental/test_fp4_k_grouped_gemm_fold.py">fold 测试</a>）</td>
+</tr>
+<tr>
+<td>共享 binding</td>
+<td>只差标识符的绑定合并成模板</td>
+</tr>
+<tr>
+<td>提取 helper</td>
+<td>进 <code>cake_device_helpers/</code></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方：deslop 也会被冲掉</div><p><a href="https://github.com/flashinfer-ai/flashinfer/issues/7253">#7253</a> 记录了一次真实回退：两次重新导出把 binding 文件从 64 个变回 102 个，因为新版生成物加了一个按 T 的检查，让之前共享的 binding 不再相同。只要编译器不变，<strong>在仓库里做的清理就可能被下一次导出覆盖</strong>。这也是为什么折叠后的文件头写着 “The Cake exporter rewrites this file; change its producer instead”（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/experimental/test_fp4_k_grouped_gemm_fold.py#L35">fold 测试</a>）。</p>
+</div>
+<h3 id="s9-7">仓库如何放行生成代码</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>做法</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pre-commit 例外</td>
+<td>生成目录排除在格式化和 lint 之外</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/.pre-commit-config.yaml#L49">exclude 规则</a></td>
+</tr>
+<tr>
+<td>目录级 <code>.clang-format</code></td>
+<td>让 clang-format 不动生成文件</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_tinygemm2_tcgen05/.clang-format">示例</a></td>
+</tr>
+<tr>
+<td>打包声明</td>
+<td>每个包在 pyproject 登记 <code>csrc/**</code> 和 <code>build.json</code>；<code>aot/</code> 不随包发布</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/pyproject.toml#L87-L88">pyproject</a></td>
+</tr>
+<tr>
+<td>清单检查</td>
+<td>schema、摘要、引用闭合、加载器一致</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py">check_cake_build_manifests.py</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s10">运行时：路由、窗口与调度规划</h2>
+<h3 id="s10-1">难点</h3>
+<p>kernel 是静态生成的，但调用时的 token 数是动态的，而且最优 schedule 随 token 数变化。host 代码要在<strong>每次调用</strong>的很短时间内选对程序、算对 grid、分好 workspace，还要兼容 CUDA Graph。</p>
+<h3 id="s10-2">路由模型</h3>
+<p>以 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py">rmsnorm 的 cake_jit.py</a> 为例，它的开头注释把模型讲得很清楚：<strong>一个 route 是一次公开调用可能 launch 的模块记录的有序列表</strong>。一条模块记录是“一个 kernel + 一种 launch 策略”：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kernel</code> / <code>library</code></td>
+<td>哪份源码、哪个 <code>.so</code> 词干</td>
+</tr>
+<tr>
+<td><code>arches</code></td>
+<td>交付给哪些架构</td>
+</tr>
+<tr>
+<td><code>role</code></td>
+<td>在路由里的角色：<code>fwd_small</code>、<code>bwd_main</code>、<code>bwd_reduce</code>…</td>
+</tr>
+<tr>
+<td><code>select_rule</code></td>
+<td>负责哪段 token 数：<code>rows_between(above, at_most)</code></td>
+</tr>
+<tr>
+<td><code>grid_rule</code></td>
+<td>grid 怎么算：<code>rows_per_cta</code>、<code>fixed</code>、<code>claimed_chunks</code></td>
+</tr>
+<tr>
+<td><code>launch</code></td>
+<td><code>use_pdl</code>、<code>cooperative</code></td>
+</tr>
+<tr>
+<td><code>workspace_rule</code></td>
+<td>需要多少 workspace，怎么布局</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一个 kernel 可以有多条记录，比如 <code>..._band</code> 这种后缀。它们指向同一个 <code>library</code>，所以只编译一次。这个包有 565 条模块记录，每个架构 32 条路由。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 变速箱的挡位</div><ul>
+<li><strong>路由</strong> = 一辆车的变速箱，按 <code>(hidden, fwd/bwd, residual, 权重类型)</code> 区分车型。</li>
+<li><strong>窗口</strong> = 挡位：<code>above &lt; T ≤ at_most</code>。</li>
+<li><strong>程序</strong> = 每个挡位的齿轮，低速扭矩大（小 T 用低延迟 kernel），高速省油（大 T 用吞吐 kernel）。</li>
+<li><strong>换挡点</strong> = 实测出来的 <code>EDGES</code>，还记录换挡时输出是否逐位相同。</li>
+</ul>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17652">program_windows</a> 会检查窗口是否恰好铺满所有正整数，不允许空挡或重叠。</p>
+</div>
+<p>选择路径是三个纯函数：</p>
+
+<figure class="flow"><div class="flow-head">从调用参数到 launch<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从调用参数到 launch&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;k&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;route_key&quot;, &quot;s&quot;: &quot;bwd_h2048&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;route_modules&quot;, &quot;s&quot;: &quot;架构 + key 查表&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;selected_modules&quot;, &quot;s&quot;: &quot;T 落在哪个窗口&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;launch_grid&quot;, &quot;s&quot;: &quot;按 grid 规则算&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;w&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;workspace_layout&quot;, &quot;s&quot;: &quot;字节布局&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;l&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;load&quot;, &quot;s&quot;: &quot;cake_build 加载&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;module.run&quot;, &quot;s&quot;: &quot;当前 torch stream&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;k&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;w&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;w&quot;, &quot;b&quot;: &quot;l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;l&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 175.0}}"></div><figcaption>对应 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17535">route_key</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17618">selected_modules</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17920">launch_grid</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L18005">workspace_layout</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L18131">run_module</a>。token 数是运行时标量，<strong>换 token 数不触发重新编译</strong>。</figcaption></figure>
+<h3 id="s10-3">三种 grid 规则</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>公式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rows_per_cta</code></td>
+<td><code>ceil(rows / rows_per_cta)</code>，再按 <code>grid_limit</code> 或 <code>grid_per_sm × SM 数</code> 截断</td>
+<td>前向，每 CTA 处理固定行数</td>
+</tr>
+<tr>
+<td><code>fixed</code></td>
+<td>固定 CTA 数</td>
+<td>dw 的 reduce kernel，每列块一个 CTA</td>
+</tr>
+<tr>
+<td><code>claimed_chunks</code></td>
+<td><code>min(slots, n_chunks + col_tasks)</code>，<code>slots = ctas_per_sm × SM 数</code></td>
+<td>反向主 kernel，持久 CTA 从计数器抢 chunk</td>
+</tr>
+</tbody>
+</table></div>
+<p>注意 <code>sm_count</code> 是运行时从 <code>torch.cuda.get_device_properties</code> 读的（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17749">sm_count</a>），所以同样的 kernel 在不同 SM 数的设备上，分块结果会不同。这也是“确定性”承诺要限定在相同 SM 数之内的原因。</p>
+<p>host 和 kernel 还要计算同一张分块表：<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17781">chunk_rounds</a> 在 Python 里算一遍，kernel 开头用整数运算再算一遍（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_9ac8d21e46a658e7913f_kernel.cu#L186">kernel 入口附近</a>）。源码注释特意提醒：改这里的常量，就是改 kernel 文本（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17757">TAIL_DIV 注释</a>）。</p>
+<h3 id="s10-4">运行期 cost model</h3>
+<p><strong>【仓库】</strong> 编译器的 cost model 不进仓库，但它的一部分结果以<strong>校准常数</strong>的形式进了 host 代码。选程序时有些决策用这些常数实时计算：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>决策</th>
+<th>注释里的线索</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/mamba/cake_ssd_combined.py#L1123">cake_ssd_combined.py</a></td>
+<td>Mamba SSD 选 exact scan 还是 chunk-parallel</td>
+<td>从 seed 模块逐字复制，要一起刷新</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_fmha.py#L6778">cake_fmha.py</a></td>
+<td>FMHA context 的 split 规划</td>
+<td>微秒单位，按目标架构</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_kda_tf32_runtime.py#L355">cake_kda_tf32_runtime.py</a></td>
+<td>KDA BF16 的 affine split</td>
+<td>可用 <code>FLASHINFER_KDA_AFFINE_POLICY=legacy</code> 做 A/B</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些常数的注释常带着内部工单号和测量批次（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/mamba/cake_ssd_combined.py#L1113">CAKE-956 round 5</a>）。如果你想在自己的硬件上调整，这里是<strong>少数不需要编译器也能动的旋钮</strong>。但要先确认对应的 kernel 和窗口没有被 exporter 覆盖。</p>
+<h3 id="s10-5">产品化的入口：cake_fmha</h3>
+<p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_fmha.py">cake_fmha.py</a> 有约 8800 行，是路由思路最完整的例子。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/api/cake_fmha.rst">文档</a> 给了几个关键事实：</p>
+<ul>
+<li>它实现的是现有 TRT-LLM FMHA 的同一份契约，和 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/decode.py#L4279">trtllm_batch_decode_with_kv_cache</a> 同参同返回。</li>
+<li>不加 <code>backend=&quot;cake&quot;</code> 就不会走它。</li>
+<li>注册表里有 1,906 个优化单元。</li>
+<li>选择器未命中、workspace 不够或加载失败时，<strong>fail closed 到 <code>compat_v1</code></strong>，这个兼容组件覆盖完整定义域。</li>
+</ul>
+<p>最后一点是库化的关键：路由表不管多大都不可能穷尽，所以必须有一条保底路线。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方：SM 分区</div><p>有些 <code>cake_fmha</code> 的小 M decode 规划要读 stream 所在的 SM 分区（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_fmha.py#L2180">_smallm_launch_sm_count</a>）。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L52">CLAUDE.md</a> 专门写了 <code>FLASHINFER_CAKE_FMHA_SM_PARTITIONS</code> 这个开关。用 green context 划分 SM 时，host 规划和实际 SM 数不一致会影响性能，这类问题 kernel 层看不出来。</p>
+</div>
+<h2 id="s11">验证与可信度</h2>
+<h3 id="s11-1">分层验证</h3>
+<p>生成代码没人逐行读，可信度只能来自验证。这是整个 CAKE 模式能成立的前提。</p>
+
+<figure class="flow"><div class="flow-head">一段生成代码要过的关卡<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一段生成代码要过的关卡&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;verifier&quot;, &quot;s&quot;: &quot;编译前（闭源）&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;数值 oracle&quot;, &quot;s&quot;: &quot;参考实现对比（闭源）&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;清单检查&quot;, &quot;s&quot;: &quot;--in-tree，无需 GPU&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;后端测试&quot;, &quot;s&quot;: &quot;只 import 包本身&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;公开 API 测试&quot;, &quot;s&quot;: &quot;tests/**/test_cake_*&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;vendored gate&quot;, &quot;s&quot;: &quot;屏蔽 flashinfer 后加载&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;基准&quot;, &quot;s&quot;: &quot;benchmarks/bench_cake_*&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;PR 性能报告&quot;, &quot;s&quot;: &quot;人工审核&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 210.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 172.0}}"></div><figcaption>上排前两关在编译器一侧，从第三关起都在仓库里。</figcaption></figure>
+<p>各关卡的细节：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>关卡</th>
+<th>检查什么</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>清单检查</td>
+<td>schema、sha256、引用闭合、<code>cake_build.py</code> 字节一致、tvm-ffi 版本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py#L651">check_manifest</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py#L925">check_loader_identity</a></td>
+</tr>
+<tr>
+<td>vendored gate</td>
+<td>拷贝包、只用清单编译、<strong>用 meta-path finder 屏蔽 flashinfer</strong> 后加载并跑测试</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py#L49">文档</a>，<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/norm/test_cake_rmsnorm_train_vendored.py">rmsnorm 测试</a></td>
+</tr>
+<tr>
+<td>包名隔离</td>
+<td>后端测试通过一张表取包，方便下游指向自己的副本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/test_helpers/cake_package.py">cake_package.py</a></td>
+</tr>
+<tr>
+<td>基准</td>
+<td>62 个 CAKE 专用脚本，其中有的把“上一版 Cake”当基线</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/benchmarks/bench_cake_fused_qk_rope_append.py">示例</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s11-2">确定性是一等概念</h3>
+<p>训练场景下 CAKE 把确定性做成了显式的产品维度，这是它和普通 kernel 库不同的地方：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>反向的 <code>dw</code> 怎么算</th>
+<th>保证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>det</code></td>
+<td>main kernel 写每 chunk 的 FP32 partial 行，reduce kernel 按 chunk 顺序折叠</td>
+<td>相同输入、硬件、计划下逐位可复现</td>
+</tr>
+<tr>
+<td><code>nondet</code></td>
+<td>持久 CTA 把 FP64 和按完成顺序累加，最后一个 CTA 落回 FP32</td>
+<td><code>dw</code> 不保证逐位可复现，<code>dx</code> 可以</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>det</code> 的含义有明确边界：<strong>不</strong>承诺跨 shape、跨设备、跨并行划分结果相同（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/training_backend_names.md">命名文档</a>）。在部分 <code>nondet</code> 窗口里，TwoSum 补偿让误差不随 T 增长（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train.py#L46">rmsnorm 模块文档</a>）。</p>
+<p>和 PyTorch 的交互也有规定：<code>torch.use_deterministic_algorithms(True)</code> 下调用 <code>deterministic=False</code> 会报错；开 <code>warn_only=True</code> 时才回落（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train.py#L57">同上</a>）。这部分正在改名，新规则是模式写进名字、不再带 <code>deterministic=</code> 参数，迁移逐族进行（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/training_backend_names.md#L8">命名规则</a>）。所以现在同时能看到两种风格。</p>
+<h3 id="s11-3">已知限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>限制</th>
+<th>来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>大部分性能证据来自 B200；timing model 只校准 B200 和 H100</td>
+<td>【论文】第 8 节</td>
+</tr>
+<tr>
+<td>静态分析不完整，有误报和漏报，不证明全局正确性</td>
+<td>【论文】附录 C</td>
+</tr>
+<tr>
+<td>编译器进化仍由人把关合并</td>
+<td>【论文】第 8 节</td>
+</tr>
+<tr>
+<td>非 NVIDIA 目标的迁移成本未测量，backend lowering 要重建</td>
+<td>【论文】第 8 节</td>
+</tr>
+<tr>
+<td><code>check_cake_build_manifests.py</code> 的 <code>--built-wheel</code> 和 JIT 参数检查还没实现</td>
+<td>【仓库】<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py#L138">TODO</a></td>
+</tr>
+<tr>
+<td>部分 CAKE 包通过实验轨道交付，没有兼容性保证</td>
+<td>【仓库】<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/__init__.py">实验声明</a></td>
+</tr>
+<tr>
+<td>仓库里无法重新生成任何 kernel，也无法复现论文实验</td>
+<td>【仓库】编译器不在其中</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s12">端到端生命周期</h2>
+<p>把前面的内容串起来：一个 RMSNorm 反向 kernel 从 IR 到 GPU。例子是 <code>cake_rmsnorm_train_backward(..., deterministic=False)</code>，B200（<code>sm_100a</code>，假设 148 个 SM），hidden 2048，T = 4096。</p>
+
+<div class="callout info"><div class="callout-title">数字怎么来的</div><p>路由和窗口是用 Python <code>ast</code> 从 <code>cake_jit.py</code> 静态解析字面量得到的。分块结果由我按 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L17781">chunk_rounds</a> 的逻辑重写计算，<strong>没有运行仓库代码，也没有在 GPU 上跑过</strong>。结果满足完整性校验：148×16 + 148×8 + 136×4 = 4096。</p>
+</div>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一次反向传播：前三步在编译器一侧，后面都在本仓库</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;ir&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Cake IR&quot;, &quot;s&quot;: &quot;NVIDIA 内部&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ver&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;验证与 oracle&quot;, &quot;s&quot;: &quot;NVIDIA 内部&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ex&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;导出&quot;, &quot;s&quot;: &quot;csrc · build.json&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;公开 API&quot;, &quot;s&quot;: &quot;@flashinfer_api&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rt&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;选路由&quot;, &quot;s&quot;: &quot;cake_jit&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ws&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;workspace&quot;, &quot;s&quot;: &quot;partial · counters&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ld&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;加载&quot;, &quot;s&quot;: &quot;校验 → JIT&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bd&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;binding&quot;, &quot;s&quot;: &quot;校验 · launch&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;main&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;main kernel&quot;, &quot;s&quot;: &quot;148 CTA 抢 chunk&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;red&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;reduce kernel&quot;, &quot;s&quot;: &quot;32 CTA · PDL&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ir&quot;, &quot;b&quot;: &quot;ver&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ver&quot;, &quot;b&quot;: &quot;ex&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ex&quot;, &quot;b&quot;: &quot;api&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;api&quot;, &quot;b&quot;: &quot;rt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rt&quot;, &quot;b&quot;: &quot;ws&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ws&quot;, &quot;b&quot;: &quot;ld&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ld&quot;, &quot;b&quot;: &quot;bd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bd&quot;, &quot;b&quot;: &quot;main&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;main&quot;, &quot;b&quot;: &quot;red&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="ir"><div class="step-title">1. Agent 写 schedule【不公开】</div><p>某个 agent 写出 Cake IR 程序，声明 warp 角色、SMEM、barrier。这份源码不在仓库里。</p>
+</div><div class="step" data-hl="ir,ver"><div class="step-title">2. 验证【不公开】</div><p>verifier 拦截，cost model 排序，然后在 B200 上和参考实现比对。一批 shape 上的种子再泛化成路由（上一章的分桶流程）。</p>
+</div><div class="step" data-hl="ver,ex"><div class="step-title">3. 导出</div><p>exporter 把程序写成 <code>_kernel.cu</code> 和 <code>_binding.cu</code>，并记录在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/build.json">build.json</a>。这个包的 <code>cake_revision</code> 是 <code>b10d84a</code>，2026-11-03 用 CUDA 13.4.92 渲染。</p>
+</div><div class="step" data-hl="api"><div class="step-title">4. 调用公开 API</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train.py#L189">cake_rmsnorm_train_backward</a> 转发到后端包。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/__init__.py#L1024">_backward</a> 把输入整理成对齐的视图，检查路由是否适用。</p>
+</div><div class="step" data-hl="api,rt"><div class="step-title">5. 选路由</div><p>key 是 <code>bwd_h2048</code>。T = 4096 落在窗口 <code>3072 &lt; T ≤ 4096</code>，选中两条记录：主 kernel <code>9ac8d21e46a658e7913f</code>（角色 <code>bwd_mid</code>）和 reduce <code>880768a0a264e04dbfb5</code>。这个窗口虽然是 <code>deterministic=False</code>，走的却是确定性的 pair 形式：窗口决定形式，这正是注册表注释说的 “per token-count window”。</p>
+</div><div class="step" data-hl="rt,ws"><div class="step-title">6. 算分块和 workspace</div><p><code>claimed_chunks</code> 规则，<code>slots = 1 × 148</code>，<code>rows_per_issue = 4</code>。分块结果：148 个 16 行、148 个 8 行、136 个 4 行，共 432 个 chunk。主 kernel 的 grid 是 <code>min(148, 432) = 148</code>。workspace 由调用者持有，kernel 负责把计数器还原，所以 CUDA Graph 重放不需要 host 写入（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L18005">workspace_layout</a>）。</p>
+</div><div class="step" data-hl="ws,ld"><div class="step-title">7. 加载</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_jit.py#L18114">load</a> 拼出库名 <code>..._sm_100a</code>。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/cake_build.py#L277">load_library</a> 先找 <code>aot/</code>；没有就走 JIT：校验 sha256，用 <code>closure_sha256</code> 命名 spec，交给 FlashInfer 的 ninja 流程。这个库要求 CUDA 12.8 以上。</p>
+</div><div class="step" data-hl="ld,bd"><div class="step-title">8. binding 校验并 launch</div><p><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_9ac8d21e46a658e7913f_binding.cu">binding</a> 校验 dtype、设备、连续性、i32 范围、grid 上限，然后 <code>cudaLaunchKernelExC</code>：<code>blockDim = 512</code>，动态 SMEM 132608 字节（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_9ac8d21e46a658e7913f_binding.cu#L136-L137">L136</a>）。</p>
+</div><div class="step" data-hl="bd,main"><div class="step-title">9. 主 kernel 执行</div><p>148 个 CTA 从 <code>counters</code> 用 <code>atomicAdd</code> 抢 chunk，大 chunk 先发，小 chunk 收尾，这是经典的负载均衡。每个 chunk 把一行 FP32 partial 写进 workspace，同时写 <code>dx</code>。</p>
+</div><div class="step" data-hl="main,red"><div class="step-title">10. reduce 收尾</div><p>reduce kernel 用 32 个 CTA 按 chunk 顺序折叠 <code>dw</code>。它以 PDL 方式 launch：binding 设置 <code>cudaLaunchAttributeProgrammaticStreamSerialization</code>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_880768a0a264e04dbfb5_binding.cu#L77-L81">L77</a>），kernel 里用 <code>griddepcontrol.wait</code> 等前一个 grid（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_880768a0a264e04dbfb5_kernel.cu#L84">L84</a>），减少两次 launch 之间的间隙。</p>
+</div></div></div>
+<p>这个例子能说明几件事。host 的 Python 只做规划，不碰数据；kernel 选择完全由数据表驱动；同一个 API 在 T 变化时可能换 kernel、换算法形式，甚至换精度路径，而调用者看不到。</p>
+<h2 id="s13">开源许可证</h2>
+<h3 id="s13-1">各部分的许可证</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FlashInfer 主体</td>
+<td>Apache-2.0</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/pyproject.toml#L22">pyproject.toml</a></td>
+</tr>
+<tr>
+<td>CAKE 生成代码</td>
+<td>文件头是 Apache-2.0</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend/csrc/cake_rmsnorm_train_9ac8d21e46a658e7913f_kernel.cu#L1-L15">kernel 文件头</a></td>
+</tr>
+<tr>
+<td>Hopper attention 部分文件</td>
+<td>BSD 3-Clause（FlashAttention 派生）</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/LICENSE#L209">LICENSE 第三方段</a></td>
+</tr>
+<tr>
+<td>3rdparty/cutlass</td>
+<td>BSD 3-Clause</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/licenses/LICENSE.cutlass.txt">LICENSE.cutlass</a></td>
+</tr>
+<tr>
+<td>3rdparty/spdlog、fmt</td>
+<td>MIT</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/licenses/LICENSE.spdlog.txt">LICENSE.spdlog</a></td>
+</tr>
+<tr>
+<td>KDA 部分 kernel</td>
+<td>MIT</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/NOTICE#L10">NOTICE</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/LICENSE.kda-for-kda.txt">LICENSE.kda-for-kda</a></td>
+</tr>
+<tr>
+<td>vendor 的 cuDNN Frontend</td>
+<td>MIT 和 Apache-2.0 混合，逐文件标注</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/NOTICE#L26">NOTICE</a></td>
+</tr>
+<tr>
+<td>CAKE 编译器</td>
+<td>未公开，无从谈许可证</td>
+<td>见下</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s13-2">规则和场景</h3>
+<p>Apache-2.0 是宽松许可证：可以商用、修改、闭源分发，要保留版权和 NOTICE，修改过的文件要标明，并包含专利授权和专利报复条款。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>公司内部用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>允许</td>
+<td>我没有找到 CLA 或 DCO 要求；照 PR 模板写</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留 LICENSE、NOTICE，标明改动</td>
+</tr>
+<tr>
+<td>vendor CAKE 包进自己的产品</td>
+<td>允许</td>
+<td>带上 LICENSE 和 NOTICE；这也是 #6553 支持的用法</td>
+</tr>
+<tr>
+<td>闭源 SaaS</td>
+<td>允许</td>
+<td>Apache-2.0 没有网络条款</td>
+</tr>
+<tr>
+<td>发行二进制 wheel</td>
+<td>允许</td>
+<td>带上第三方许可证文本，见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/licenses">licenses/</a></td>
+</tr>
+<tr>
+<td>使用 CAKE 编译器</td>
+<td>目前做不到</td>
+<td>没有公开发布，不要当作可依赖的工具链</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s13-3">历史</h3>
+<p>用 GitHub API 和首个 commit 的文件核实：<code>LICENSE</code> 在 2023-07-22 的首次提交里就是 Apache-2.0，现在 GitHub 识别的也是 Apache-2.0。此后有 5 次提交改过这个文件，最近一次在 2026-08-31。从 commit 标题看都和新增第三方组件有关，我没有逐条 diff。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这里是工程师读代码时的理解。<code>NOTICE</code> 里列的第三方来源较多，真要分发请逐条核对 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/NOTICE">NOTICE</a> 和对应目录的 <code>VENDOR.md</code>，并咨询律师。</p>
+</div>
+<h2 id="s14">贡献与定制</h2>
+<h3 id="s14-1">开发环境</h3>
+<pre><code class="language-bash">git clone https://github.com/flashinfer-ai/flashinfer.git --recursive
+cd flashinfer
+pip install --no-build-isolation -e . -v
+pre-commit install
+pytest tests/path/test_file.py::test_function
+</code></pre>
+<p><code>--recursive</code> 是必须的，子模块见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/.gitmodules">.gitmodules</a>。<code>--no-build-isolation</code> 防止 pip 拉进不兼容的 PyTorch。<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md">CLAUDE.md</a> 有 1200 多行，是事实上的开发手册，AGENTS.md 只是转到这里（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/AGENTS.md">AGENTS.md</a>）。加 kernel 的步骤见 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/.claude/skills/add-cuda-kernel/SKILL.md">add-cuda-kernel</a>。</p>
+<h3 id="s14-2">项目的 review 规则</h3>
+<ul>
+<li>用默认 PR 模板，不要改写成自定义格式（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/.github/pull_request_template.md">模板</a>）。标题和描述会变成 squash 后的 commit message。</li>
+<li>性能 PR 必须给<strong>绝对数值</strong>，并写明 GPU 和 shape（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CONTRIBUTING.md#L99">PR 规则</a>）。</li>
+<li>欢迎 AI 辅助，但作者要能讲清设计，否则 PR 可能被拒。</li>
+<li><code>include/</code> 不准出现 Torch 头文件。</li>
+<li>新的公开 API 要配 <code>TraceTemplate</code>（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L679">清单</a>）。</li>
+<li>触发 CI 默认用定向测试：<code>@flashinfer-bot run tests/&lt;路径&gt;</code>，<code>run all</code> 很贵（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md#L480">说明</a>）。</li>
+<li>实验性功能要有 owner、tracking issue、毕业计划，默认四周内毕业。</li>
+<li>review 的重点在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/code_review_guidance.md">code_review_guidance.md</a>：越界、溢出、workspace 大小、同步。</li>
+</ul>
+<h3 id="s14-3">碰 CAKE 代码时</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>想做的事</th>
+<th>可以吗</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改 <code>*_kernel.cu</code>、<code>cake_build.py</code>、<code>cake_windows.py</code></td>
+<td><strong>不要</strong></td>
+<td>sha 校验会失败，下次导出也会覆盖</td>
+</tr>
+<tr>
+<td>改公开门面、文档、docstring</td>
+<td>可以</td>
+<td>门面是手写的</td>
+</tr>
+<tr>
+<td>加测试、基准</td>
+<td>可以</td>
+<td>后端测试走 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/test_helpers/cake_package.py">cake_package.py</a></td>
+</tr>
+<tr>
+<td>修 host 逻辑的 bug</td>
+<td>谨慎</td>
+<td><code>cake_jit.py</code> 的数据由 exporter 填写。动手前先看这个文件最近是不是被导出 PR 重写过，并在 PR 里写明</td>
+</tr>
+<tr>
+<td>请求新 kernel</td>
+<td>可以</td>
+<td>在 <a href="https://github.com/flashinfer-ai/flashinfer/issues/4254">#4254</a> 留言或开 sub-issue；训练类看 <a href="https://github.com/flashinfer-ai/flashinfer/issues/4642">#4642</a></td>
+</tr>
+<tr>
+<td>清理重复代码</td>
+<td>谨慎</td>
+<td>学 deslop issue 的写法，先统计影响，并确认能经受重新导出</td>
+</tr>
+<tr>
+<td>手工接管一个家族</td>
+<td>可以但重</td>
+<td>学 GDN：manifest + SASS 等价检查</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s14-4">适合入手的方向</h3>
+<ul>
+<li><strong>测试和边界条件</strong>：路由窗口边缘、workspace 大小、CUDA Graph 重放。这类工作不依赖编译器，价值高。</li>
+<li><strong>手写 kernel 的小修复</strong>：<code>include/</code> 下的 kernel 和 CUTLASS 路径。</li>
+<li><strong>文档</strong>：很多 CAKE README 写得很细，但没有总览，这份导读能看出缺口。</li>
+<li><strong>fi_trace</strong>：<code>@flashinfer_api</code> 自动提供 <code>.fi_trace()</code>，产出的 JSON 是 <a href="https://github.com/flashinfer-ai/flashinfer-bench">flashinfer-bench</a> 的输入（<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/fi_trace.rst">fi_trace 文档</a>）。</li>
+</ul>
+<p>需要避开的方向：大范围改动生成代码、统一 CAKE 的编译参数、给 <code>backend=&quot;auto&quot;</code> 增加实验后端的路径。</p>
+<h3 id="s14-5">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">我想要一个更快的 kernel，该走哪条路？<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;我想要一个更快的 kernel，该走哪条路？&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;现有后端够吗？&quot;, &quot;s&quot;: &quot;先跑 benchmark&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;选 backend&quot;, &quot;s&quot;: &quot;cake 或 autotune&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;vendor CAKE 包&quot;, &quot;s&quot;: &quot;只要 build.json&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;自己写 kernel&quot;, &quot;s&quot;: &quot;CuTe DSL 或 CUDA&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;请 CAKE 团队烤&quot;, &quot;s&quot;: &quot;#4254 提需求&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;手工接管生成代码&quot;, &quot;s&quot;: &quot;SASS 等价 · 成本高&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;调 cost 常数&quot;, &quot;s&quot;: &quot;host 侧旋钮&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 182.0}}"></div><figcaption>从上到下成本递增。vendor 流程的权威说明在 <a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py#L2">检查脚本文档</a> 和 <a href="https://github.com/flashinfer-ai/flashinfer/issues/6553">#6553</a>。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>代价</th>
+<th>依赖</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>选 backend / autotune</td>
+<td>低</td>
+<td>无</td>
+<td>先做这一步</td>
+</tr>
+<tr>
+<td>调 host 校准常数</td>
+<td>低</td>
+<td>自己的基准</td>
+<td>SM 数或负载和官方不同</td>
+</tr>
+<tr>
+<td>vendor CAKE 包</td>
+<td>中</td>
+<td><code>build.json</code>、nvcc、tvm-ffi</td>
+<td>需要 hermetic 构建、镜像内预编译</td>
+</tr>
+<tr>
+<td>写 CuTe DSL / CUDA</td>
+<td>高</td>
+<td>对硬件的深入理解</td>
+<td>官方没有覆盖的算子</td>
+</tr>
+<tr>
+<td>请求 CAKE kernel</td>
+<td>不确定</td>
+<td>上游排期</td>
+<td>公开模型的热点算子</td>
+</tr>
+<tr>
+<td>自建类似 Cake 的环境</td>
+<td>很高</td>
+<td>论文只给设计，不给实现</td>
+<td>研究团队</td>
+</tr>
+</tbody>
+</table></div>
+<p>走最后一条路之前，可以先看两个第三方复现：<a href="https://github.com/huangzhilin-hzl/cake-ir">cake-ir</a>（面向 CUDA）和 <a href="https://github.com/QiGS/cake-ascend">cake-ascend</a>（面向华为 Ascend）。它们都是根据论文独立实现的，和官方 CAKE 没有关系，我只看了 README，没有评估过质量。</p>
+<h2 id="s15">附录：源码索引</h2>
+<h3 id="s15-1">FlashInfer 主干</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开发手册</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CLAUDE.md">CLAUDE.md</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/CONTRIBUTING.md">CONTRIBUTING.md</a></td>
+</tr>
+<tr>
+<td>公开导出</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/__init__.py">flashinfer/<strong>init</strong>.py</a></td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/__main__.py"><strong>main</strong>.py</a></td>
+</tr>
+<tr>
+<td>JIT 核心</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/core.py">core.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cpp_ext.py">cpp_ext.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/env.py">env.py</a></td>
+</tr>
+<tr>
+<td>构建后端</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/build_backend.py">build_backend.py</a></td>
+</tr>
+<tr>
+<td>AOT</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/aot.py">aot.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/artifacts.py">artifacts.py</a></td>
+</tr>
+<tr>
+<td>backend 机制</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L1364">backend_requirement</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/utils.py#L1292">experimental_backend</a></td>
+</tr>
+<tr>
+<td>实验策略</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/README.md">README</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/experimental/CLAUDE.md">CLAUDE.md</a></td>
+</tr>
+<tr>
+<td>Trace</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/fi_trace.py">fi_trace.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/trace">trace/</a></td>
+</tr>
+<tr>
+<td>CI</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/.github/workflows/pr-test.yml">pr-test.yml</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/Jenkinsfile">Jenkinsfile</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s15-2">CAKE 产物</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>形态 A 样本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_blackwell_softmax_rowwise.cu">softmax 冻结源码</a></td>
+</tr>
+<tr>
+<td>形态 B 运行时</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_program.py">cake_program.py</a></td>
+</tr>
+<tr>
+<td>形态 C 样本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_rmsnorm_train_backend">rmsnorm 后端包</a></td>
+</tr>
+<tr>
+<td>形态 D 样本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/gdn/cake/README.md">GDN README</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/jit/cake_gdn.py">cake_gdn.py</a></td>
+</tr>
+<tr>
+<td>形态 E 样本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_fmha.py">cake_fmha.py</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_fmha/registry.json">registry.json</a></td>
+</tr>
+<tr>
+<td>共享 helper</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/tree/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_device_helpers">cake_device_helpers/</a></td>
+</tr>
+<tr>
+<td>检查脚本</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/scripts/check_cake_build_manifests.py">check_cake_build_manifests.py</a></td>
+</tr>
+<tr>
+<td>观察 IR 的 kernel</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/flashinfer/cake_nvfp4_svdquant_gemm_backend/csrc/cake_nvfp4_svdquant_gemm_05bda082a73c0c1a68b0_kernel.cu">svdquant 05bda08</a></td>
+</tr>
+<tr>
+<td>命名规则</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/training_backend_names.md">training_backend_names.md</a></td>
+</tr>
+<tr>
+<td>家族 README</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_dsv4/README.md">DSv4</a>、<a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/csrc/cake_kimi_k3_mla/README.md">Kimi-K3 MLA</a></td>
+</tr>
+<tr>
+<td>后端测试入口</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/tests/test_helpers/cake_package.py">cake_package.py</a></td>
+</tr>
+<tr>
+<td>教程</td>
+<td><a class="src" href="https://github.com/flashinfer-ai/flashinfer/blob/555dd84ea4d94890c095dddf5144291861368818/docs/tutorials/cake_kimi_k3_situ.rst">Kimi-K3 SiTU</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s15-3">仓库外的资料</h3>
+<ul>
+<li><a href="https://arxiv.org/abs/2608.12629">CAKE 论文（arXiv 2608.12629）</a></li>
+<li><a href="https://github.com/flashinfer-ai/flashinfer/issues/4254">CAKE kernel 进度追踪 #4254</a></li>
+<li><a href="https://github.com/flashinfer-ai/flashinfer/issues/6553">CAKE 包独立构建 #6553</a></li>
+<li><a href="https://github.com/flashinfer-ai/flashinfer/pull/4262">首个 CAKE PR #4262</a></li>
+<li><a href="https://docs.flashinfer.ai">FlashInfer 文档</a></li>
+<li>第三方复现，非官方，未评估：<a href="https://github.com/huangzhilin-hzl/cake-ir">cake-ir</a>、<a href="https://github.com/QiGS/cake-ascend">cake-ascend</a></li>
+</ul>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

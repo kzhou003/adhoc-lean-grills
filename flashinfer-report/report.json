@@ -1,0 +1,18 @@
+{
+  "title": "FlashInfer 与 CAKE：从原理到源码",
+  "kicker": "Source-level guide · FlashInfer × CAKE compiler",
+  "lede": "一份为“想读懂、想贡献、想定制 FlashInfer”准备的导读：它解决什么问题，JIT 和 kernel 体系怎么搭起来，以及占了仓库绝大部分代码量的 CAKE：编译器在哪、Cake IR 长什么样、产物怎么进仓库、一次调用怎么跑到 GPU 上。",
+  "brand": "FlashInfer + CAKE 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {
+    "fi": {
+      "repo": "flashinfer-ai/flashinfer",
+      "sha": "555dd84ea4d94890c095dddf5144291861368818",
+      "local": "~/development/flashinfer-report/flashinfer-src"
+    }
+  },
+  "quality": {"flows": 10, "analogies": 3, "links": 80}
+}
