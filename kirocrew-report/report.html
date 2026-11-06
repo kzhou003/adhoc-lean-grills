@@ -1,0 +1,1292 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiro Crew 源码导读</title>
+<meta name="description" content="Kiro Crew 是运行在你自己硬件上的持久开发工作台：一个 gateway 进程把 CLI、Dashboard、消息渠道接到 ACP agent。这份导读讲它的主干、安全模型、记忆和编排，以及在 220 万行 Python 里该从哪读起。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:Kiro Crew 源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">Kiro Crew 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">三层结构</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">总图</a>
+<a class="nav-l3" href="#s2-4">它从哪来</a>
+<a class="nav-l2" href="#s3">Gateway 与会话</a>
+<a class="nav-l3" href="#s3-1">职责</a>
+<a class="nav-l3" href="#s3-2">核心概念：session key</a>
+<a class="nav-l3" href="#s3-3">代码组织：把一个类拆成很多文件</a>
+<a class="nav-l3" href="#s3-4">关闭顺序</a>
+<a class="nav-l2" href="#s4">ACP 与 harness</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l3" href="#s4-2">后端</a>
+<a class="nav-l3" href="#s4-3">难点：闸门在每个 harness 上都要成立</a>
+<a class="nav-l2" href="#s5">上下文与记忆</a>
+<a class="nav-l3" href="#s5-1">职责</a>
+<a class="nav-l3" href="#s5-2">记忆的生命周期</a>
+<a class="nav-l2" href="#s6">安全模型</a>
+<a class="nav-l3" href="#s6-1">分层</a>
+<a class="nav-l3" href="#s6-2">最关键的一条认识</a>
+<a class="nav-l3" href="#s6-3">沙箱分级</a>
+<a class="nav-l3" href="#s6-4">治理</a>
+<a class="nav-l3" href="#s6-5">文化：不要追拼写</a>
+<a class="nav-l2" href="#s7">编排</a>
+<a class="nav-l2" href="#s8">App 边界</a>
+<a class="nav-l2" href="#s9">端到端：一条 Dashboard 消息</a>
+<a class="nav-l2" href="#s10">开源许可证</a>
+<a class="nav-l2" href="#s11">贡献与定制</a>
+<a class="nav-l3" href="#s11-1">开发环境</a>
+<a class="nav-l3" href="#s11-2">项目规则</a>
+<a class="nav-l3" href="#s11-3">适合入手的方向</a>
+<a class="nav-l3" href="#s11-4">定制路线</a>
+<a class="nav-l3" href="#s11-5">仓库里没有的东西</a>
+<a class="nav-l2" href="#s12">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · kirodotdev/KiroCrew</div><h1>Kiro Crew 源码导读</h1><p class="lede">Kiro Crew 是运行在你自己硬件上的持久开发工作台：一个 gateway 进程把 CLI、Dashboard、消息渠道接到 ACP agent。这份导读讲它的主干、安全模型、记忆和编排，以及在 220 万行 Python 里该从哪读起。</p><p class="meta">kirodotdev/KiroCrew @ 083e552</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给想读懂、贡献或定制 Kiro Crew 的工程师。这个仓库非常大：<code>src/kiro_crew</code> 有 4245 个 Python 文件，约 223 万行（含测试夹具和 vendored 代码），前端还有 7000 多个文件。所以这里<strong>只讲主干和边界</strong>，不逐模块介绍。</p>
+<p>读完你应该能做到：说清一条消息怎么走到模型再回来；知道安全保证到底落在哪一层；知道一个改动该先读哪份规格；判断该写 App、Skill、MCP 工具，还是改核心。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：三层结构、目标与限制。</li>
+<li><strong>Gateway 与会话</strong>：进程模型、session key、生命周期。</li>
+<li><strong>ACP 与 harness</strong>：唯一的 provider，多个后端。</li>
+<li><strong>上下文与记忆</strong>：提示怎么拼，记忆怎么沉淀。</li>
+<li><strong>安全模型</strong>：治理、闸门、沙箱、审计，这是项目的第一原则。</li>
+<li><strong>编排</strong>：子 agent、Cron、TaskRunner、心跳。</li>
+<li><strong>App 边界</strong>：核心和 App 怎么分。</li>
+<li><strong>端到端</strong>：一条 Dashboard 消息。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>kirodotdev/KiroCrew</code> @ <code>083e552</code>（2026-11-06，版本 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/pyproject.toml#L7">0.13.0</a>）。我没有运行过它。下面的内容来自阅读代码和仓库文档，这个仓库的 <code>docs/</code> 非常详细，很多结论直接引用了它们。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">三层结构</h3>
+<p>理解 Kiro Crew 先要分清三层（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L17">架构总览</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>是什么</th>
+<th>负责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ACP harness</strong></td>
+<td>agent 的运行时，默认是 <code>kiro-cli</code></td>
+<td>LLM 连接、工具执行、MCP、上下文压缩</td>
+</tr>
+<tr>
+<td><strong>Agent 配置</strong></td>
+<td><code>~/.kiro/agents/</code> 下的 JSON</td>
+<td>系统提示、启用的工具、MCP 服务</td>
+</tr>
+<tr>
+<td><strong>Kiro Crew</strong></td>
+<td>单个 asyncio 进程，即 gateway</td>
+<td>把多个入口接到 harness，补上运行时不管的东西</td>
+</tr>
+</tbody>
+</table></div>
+<p>也就是说，Kiro Crew <strong>自己不调用 LLM</strong>。它是 harness 上面的一层：会话管理、记忆、调度、治理。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>只用 kiro-cli</th>
+<th>加上 Kiro Crew</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>会话</td>
+<td>每个终端一个</td>
+<td>频道线程、Dashboard 槽位、Cron、子 agent 同时运行</td>
+</tr>
+<tr>
+<td>入口</td>
+<td>终端</td>
+<td>CLI、Web、桌面、Slack、Discord 等</td>
+</tr>
+<tr>
+<td>持久化</td>
+<td>按目录的转录</td>
+<td>跨会话记忆</td>
+</tr>
+<tr>
+<td>调度</td>
+<td>无</td>
+<td>Cron、TaskRunner</td>
+</tr>
+<tr>
+<td>工具闸门</td>
+<td>agent 配置</td>
+<td>独立的 PreToolUse 闸门 + agent 改不了的治理上限</td>
+</tr>
+<tr>
+<td>进程韧性</td>
+<td>手动重启</td>
+<td>warm pool、断路器、崩溃恢复、孤儿进程跟踪</td>
+</tr>
+</tbody>
+</table></div>
+<p>这张表整理自 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L40">overview.md</a>。</p>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>持久、无人值守、会自我改进的开发工作台，运行在用户硬件上</td>
+</tr>
+<tr>
+<td><strong>第一原则</strong></td>
+<td>Safety first：每个动作都可门控、可审计（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/TENETS.md#L5">TENETS</a>，排序有优先级）</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>多入口、跨会话记忆、Cron、自主任务、App 平台</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>单进程里并发很多会话；每个会话一个子进程</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>依赖外部 harness；跨 macOS/Linux/Windows；公开仓库是内部包的去 Amazon 化分支</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>ACP 协议隔离 harness；<code>POLICY ∩ PROFILE</code> 治理；OS 沙箱；App 边界；规格文档路由</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>Apache-2.0</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">总图</h3>
+
+<figure class="flow"><div class="flow-head">入口、gateway、harness<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;入口、gateway、harness&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;cli&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;CLI&quot;, &quot;s&quot;: &quot;kirocrew chat&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;web&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Web / 桌面&quot;, &quot;s&quot;: &quot;React + Electron&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ch&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;消息渠道&quot;, &quot;s&quot;: &quot;Slack · Discord …&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gw&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Gateway&quot;, &quot;s&quot;: &quot;单个 asyncio 进程&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sm&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;SessionManager&quot;, &quot;s&quot;: &quot;session key → 进程&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;acp&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;AcpClient&quot;, &quot;s&quot;: &quot;JSON-RPC stdio&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hs&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ACP harness&quot;, &quot;s&quot;: &quot;kiro-cli 等&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;llm&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;LLM&quot;, &quot;s&quot;: &quot;harness 负责认证&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mcp&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;MCP 服务&quot;, &quot;s&quot;: &quot;工具&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gate&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;PreToolUse 闸门&quot;, &quot;s&quot;: &quot;治理 + 拒绝规则&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mem&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;记忆与上下文&quot;, &quot;s&quot;: &quot;ContextBuilder&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;orch&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;编排&quot;, &quot;s&quot;: &quot;Cron · 任务 · 子 agent&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;cli&quot;, &quot;b&quot;: &quot;gw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;web&quot;, &quot;b&quot;: &quot;gw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ch&quot;, &quot;b&quot;: &quot;gw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gw&quot;, &quot;b&quot;: &quot;sm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sm&quot;, &quot;b&quot;: &quot;acp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;acp&quot;, &quot;b&quot;: &quot;hs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hs&quot;, &quot;b&quot;: &quot;llm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hs&quot;, &quot;b&quot;: &quot;mcp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;acp&quot;, &quot;b&quot;: &quot;gate&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;mem&quot;, &quot;b&quot;: &quot;sm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;orch&quot;, &quot;b&quot;: &quot;sm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>深色是外部进程。所有入口和后台任务最终都走 <code>SessionManager</code>。Mermaid 版本见 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L80">High-level shape</a>。</figcaption></figure>
+<h3 id="s2-4">它从哪来</h3>
+<p>这个仓库是一个内部包“去 Amazon 化”后的公开分支（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L27">AGENTS.md</a>）。<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/system-specs/oss-fork-boundaries.md">oss-fork-boundaries</a> 列了不能带回来的东西，并由 <code>internal-content-scan</code> 检查把关。这对贡献者有直接影响：标记列表本身是私有的，你看不到全部规则。</p>
+<h2 id="s3">Gateway 与会话</h2>
+<h3 id="s3-1">职责</h3>
+<p>gateway 是一个 aiohttp + asyncio 进程。入口脚本是 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/pyproject.toml#L26">kirocrew</a>，指向 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/_bootstrap.py">_bootstrap.py</a>，服务组合在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/slack/gateway.py">slack/gateway.py</a>（文件名有历史原因），Dashboard 在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/dashboard/server.py">dashboard/server.py</a>。</p>
+<h3 id="s3-2">核心概念：session key</h3>
+<p>每个会话是一条独立 ACP 连接，用 <code>session_key</code> 标识，key 编码了它的来源。不同来源的生命周期不同，这是刻意的：<strong>人盯着的界面保留会话，后台任务不保留</strong>。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>调用方</th>
+<th>模式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>频道</td>
+<td>每线程长期存在，<code>finally</code> 里 <code>release()</code>，靠空闲回收</td>
+</tr>
+<tr>
+<td>Dashboard 槽位</td>
+<td>每槽位长期存在，用户关闭</td>
+</tr>
+<tr>
+<td>Cron</td>
+<td><code>cron:{id}</code>；非持久时每次一个新 key，上下文不累积</td>
+</tr>
+<tr>
+<td>心跳</td>
+<td>一轮共用 <code>HEARTBEAT_KEY</code>，轮末回收</td>
+</tr>
+<tr>
+<td>子 agent</td>
+<td><code>subagent:{id}</code>，会话文件保留给 <code>spawn_continue</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>来自 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L307">Lifecycle by caller</a>。</p>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/session.py#L405">SessionManager</a> 管理这张表。<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/session_allocation_parts/get_or_create.py#L348">get_or_create</a> 是分配入口。</p>
+<p>几个默认值（来自 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L285">overview</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>默认</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session.pool_size</code></td>
+<td>0</td>
+<td>warm pool 默认关闭</td>
+</tr>
+<tr>
+<td><code>session.timeout_secs</code></td>
+<td>3600</td>
+<td>空闲回收</td>
+</tr>
+<tr>
+<td><code>agent.chat_turn_timeout_secs</code></td>
+<td>14400</td>
+<td>单轮上限，不能关闭</td>
+</tr>
+<tr>
+<td><code>agent.tool_approval_timeout_secs</code></td>
+<td>600</td>
+<td>审批窗口，必须在轮次内到期</td>
+</tr>
+<tr>
+<td>断路器</td>
+<td>连续 5 次失败</td>
+<td>强制重置</td>
+</tr>
+<tr>
+<td><code>session.autocompact_pct</code></td>
+<td>70%</td>
+<td>自动压缩阈值</td>
+</tr>
+</tbody>
+</table></div>
+<p>审批窗口的设计值得看：它要比轮次上限早到期，否则没回答的审批会被报告成轮次超时，真正的原因就丢了。</p>
+<h3 id="s3-3">代码组织：把一个类拆成很多文件</h3>
+<p>打开 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client_turn.py">acp/client_turn.py</a> 会看到这样的文件头：函数第一个参数是 <code>self</code>，由类按名字绑定，并列出读写的实例字段。这个项目用这种方式把几千行的类拆成多个 owner 模块。<code>session_parts/</code>、<code>taskrunner_parts/</code>、<code>agent_parts/</code> 都是这个模式。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><ul>
+<li><strong>很多文件是 shim。</strong> 比如 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp_tool_gate.py">acp_tool_gate.py</a> 只是重新导出，真实现在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/tree/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk">agent_sdk/</a>。打开文件先看文件头。</li>
+<li><strong>模块级全局变量是有意的。</strong> <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/hooks.py#L9">hooks.py</a> 开头保留“看起来没用”的 import，因为 owner 模块都从这里读，测试也替换它们。</li>
+</ul>
+</div>
+<h3 id="s3-4">关闭顺序</h3>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L320">Shutdown order</a> 明确写着顺序是承重的。一个例子：杀掉所有子进程会产生 <code>waitpid</code> 回收风暴，可能卡住事件循环超过看门狗阈值，所以要<strong>先关看门狗</strong>，否则干净退出会变成崩溃退出。</p>
+<h2 id="s4">ACP 与 harness</h2>
+<h3 id="s4-1">职责</h3>
+<p>Kiro Crew 只有一个 LLM provider，就是 ACP。<code>agent.provider</code> 固定为 <code>acp</code>，后端由 <code>agent.acp_backend</code> 选（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L36">overview</a>）。AGENTS 的开头补充说明：未选择时默认跑 KAS 引擎（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L15">AGENTS.md</a>）。这两处的措辞不完全一致：overview 说 <code>kiro-cli</code> 是默认，AGENTS 说走 KAS，通过 <code>kiro-cli acp --agent-engine v3</code> 或自带的引擎。以代码 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/kas_route.py">kas_route.py</a> 为准。</p>
+<h3 id="s4-2">后端</h3>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py">backends.py</a> 是“这个构建能驱动哪些 harness”的唯一判定处：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>后端</th>
+<th>常量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kiro-cli</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L407">ACP_BACKEND_KIRO</a>（值是空字符串）</td>
+</tr>
+<tr>
+<td>KAS</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L330">ACP_BACKEND_KAS</a></td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L329">ACP_BACKEND_CLAUDE</a></td>
+</tr>
+<tr>
+<td>Codex、OpenCode、Pi</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L334">CODEX</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L339">OPENCODE</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L346">PI</a></td>
+</tr>
+<tr>
+<td>goose、DeepSeek、Copilot、Strands</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L379">GOOSE</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L385">DEEPSEEK</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L394">COPILOT</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/agent_sdk/backends.py#L404">STRANDS</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s4-3">难点：闸门在每个 harness 上都要成立</h3>
+<p>每个 harness 的权限模型都不同。如果某个 harness 能绕过 Kiro Crew 的闸门，治理就失效了。所以 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/system-specs/modules/harness-parity.md">harness-parity</a> 把这件事定义成不变量，并有 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/ci/harness-parity-gate.md">CI 闸门</a>。</p>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client_permissions.py">client_permissions.py</a> 里能看到这种防御：<code>_refuse_identity_drift</code>、<code>_tripwire_goose_mode</code>、<code>_tripwire_pi_gate</code>、<code>_refuse_session_config_drift</code>。它们检查 harness 有没有偷偷改了权限模式。agent 配置说的不算，要验证运行时实际状态。</p>
+
+<figure class="flow"><div class="flow-head">一轮 ACP 交互<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一轮 ACP 交互&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;gw&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;AcpClient&quot;, &quot;s&quot;: &quot;send_message_stream&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hs&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;harness&quot;, &quot;s&quot;: &quot;子进程 stdio&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;llm&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;LLM&quot;, &quot;s&quot;: &quot;流式 token&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ev&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;事件分发&quot;, &quot;s&quot;: &quot;_dispatch&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;perm&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;权限请求&quot;, &quot;s&quot;: &quot;_handle_permission&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gate&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;闸门判定&quot;, &quot;s&quot;: &quot;on_tool_call&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sel&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;SEL 审计&quot;, &quot;s&quot;: &quot;哈希链&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;gw&quot;, &quot;b&quot;: &quot;hs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hs&quot;, &quot;b&quot;: &quot;llm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hs:b&quot;, &quot;b&quot;: &quot;ev:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ev&quot;, &quot;b&quot;: &quot;perm&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;perm&quot;, &quot;b&quot;: &quot;gate&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gate:t&quot;, &quot;b&quot;: &quot;sel:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 175.0}}"></div><figcaption>流式入口是 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client_turn.py#L714">send_message_stream</a>，权限处理是 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client_permissions.py#L505">_handle_permission</a>。不同 harness 走闸门的路径不同，比如 KAS 在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/kas_wire.py#L757">kas_wire.py</a> 调用；我没有逐个 harness 核实。</figcaption></figure>
+<h2 id="s5">上下文与记忆</h2>
+<h3 id="s5-1">职责</h3>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/context.py#L1330">ContextBuilder</a> 把记忆、技能和 hook 注入的内容拼成一段，在会话第一轮（或上下文重置后）加到用户消息前面。</p>
+<h3 id="s5-2">记忆的生命周期</h3>
+
+<figure class="flow"><div class="flow-head">全局 V1 记忆的流向<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;全局 V1 记忆的流向&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;msg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;对话&quot;, &quot;s&quot;: &quot;用户 + agent&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;log&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ConversationLog&quot;, &quot;s&quot;: &quot;每会话 JSONL&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;con&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;异步整理&quot;, &quot;s&quot;: &quot;LLM 提炼&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pref&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;preferences.md&quot;, &quot;s&quot;: &quot;projects.md&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;day&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;每日历史&quot;, &quot;s&quot;: &quot;history/日期.md&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;les&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;lessons.jsonl&quot;, &quot;s&quot;: &quot;纠错教训&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ret&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;检索&quot;, &quot;s&quot;: &quot;FTS5 + 向量&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ctx&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;ContextBuilder&quot;, &quot;s&quot;: &quot;注入新会话&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;msg&quot;, &quot;b&quot;: &quot;log&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;log&quot;, &quot;b&quot;: &quot;con&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;con&quot;, &quot;b&quot;: &quot;pref&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;con:b&quot;, &quot;b&quot;: &quot;day:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;msg:b&quot;, &quot;b&quot;: &quot;les:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;day:b&quot;, &quot;b&quot;: &quot;ret:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ret&quot;, &quot;b&quot;: &quot;ctx&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;les:b&quot;, &quot;b&quot;: &quot;ctx:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 175.0}}"></div><figcaption>对话阈值和空闲阈值见 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L352">Memory lifecycle</a>：偏好和项目约 30 条消息整理一次，每日历史在 3 小时空闲后整理。存储在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/memory.py#L227">MemoryStore</a>。成员绑定的 V2 记忆用 SQLite，不可用时显式失败，不回退到 V1。</figcaption></figure>
+<p>记忆会衰减（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L402">Global V1 history decay</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>距今</th>
+<th>注入方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>请求窗口内（默认 14 天）</td>
+<td>全文</td>
+</tr>
+<tr>
+<td>到第 60 天</td>
+<td>摘要：标题加第一条</td>
+</tr>
+<tr>
+<td>61–180 天</td>
+<td>一行标记</td>
+</tr>
+<tr>
+<td>超过 180 天</td>
+<td>不读</td>
+</tr>
+<tr>
+<td>超过 <code>history_max_days</code>（默认 365）</td>
+<td>心跳任务删除</td>
+</tr>
+</tbody>
+</table></div>
+<p>embedding 永远在进程内，用 vendored 的 llama-cpp-python，不需要装额外 daemon。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 记笔记的助理</div><ul>
+<li><strong>录音</strong> = JSONL 转录，完整但没法直接用。</li>
+<li><strong>整理笔记</strong> = 异步整理：把录音提炼成 <code>preferences.md</code>、<code>projects.md</code>。</li>
+<li><strong>便利贴</strong> = lessons：你纠正过的事，下次直接贴在桌上。</li>
+<li><strong>翻旧账</strong> = 记忆衰减：上周的看全文，两个月前的看摘要，半年前的只记得有这回事。</li>
+</ul>
+<p>助理不会每次都把全部录音重放一遍，这就是“不重放也能受益”。</p>
+</div>
+<h2 id="s6">安全模型</h2>
+<p>这是项目最认真的部分。AGENTS.md 的 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L98">Security invariants</a> 写得很长，每一条都带着事故编号。</p>
+<h3 id="s6-1">分层</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owner lock</td>
+<td>消息渠道只接受配置的 owner</td>
+<td>渠道层</td>
+</tr>
+<tr>
+<td>治理</td>
+<td><code>POLICY ∩ PROFILE</code>，最紧的赢</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/platform/governance.py">governance.py</a></td>
+</tr>
+<tr>
+<td>PreToolUse 闸门</td>
+<td>拒绝规则、敏感路径、审批</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/hooks.py#L565">HookManager</a></td>
+</tr>
+<tr>
+<td>OS 沙箱</td>
+<td>namespace / Seatbelt 隐藏凭据目录</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sandbox.py">sandbox.py</a></td>
+</tr>
+<tr>
+<td>输出脱敏</td>
+<td>擦除凭据形状的文本</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/log_redaction.py">log_redaction.py</a> 等</td>
+</tr>
+<tr>
+<td>SEL</td>
+<td>HMAC-SHA256 哈希链审计</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sel.py">sel.py</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<figure class="flow"><div class="flow-head">工具调用要穿过的层<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;工具调用要穿过的层&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;用户消息&quot;, &quot;s&quot;: &quot;渠道 owner 检查&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;harness&quot;, &quot;s&quot;: &quot;决定调工具&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;PreToolUse&quot;, &quot;s&quot;: &quot;文件路径 · 命令&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;治理&quot;, &quot;s&quot;: &quot;POLICY ∩ PROFILE&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;OS 沙箱&quot;, &quot;s&quot;: &quot;挂载遮蔽&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;工具执行&quot;, &quot;s&quot;: &quot;子进程&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;输出脱敏&quot;, &quot;s&quot;: &quot;凭据形状&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;SEL&quot;, &quot;s&quot;: &quot;哈希链审计&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;u&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;p&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 168.0}}"></div><figcaption>分层总结见 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L416">Security layers</a>，深入内容在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/security-deep-dive.md">security-deep-dive.md</a>。</figcaption></figure>
+<h3 id="s6-2">最关键的一条认识</h3>
+<p><strong>真正的强制点在 OS 层，不是文本匹配。</strong> 闸门可以拦文件工具的路径，但一个 shell 里的 <code>open()</code> 根本不经过工具闸门。所以试图用正则堵命令文本是徒劳的：<code>/./</code>、重定向、变量、<code>cd</code>……每堵一种写法，只是在无限集合里少了一个。</p>
+<p>AGENTS.md 的 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L104">Keystone</a> 用三种处置描述 crew home 下的每个文件：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>处置</th>
+<th>含义</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HIDDEN</code></td>
+<td>所有模式下挂载遮蔽</td>
+<td>凭据目录、<code>.env</code></td>
+</tr>
+<tr>
+<td><code>READONLY</code></td>
+<td>沙箱内可读不可写</td>
+<td>四个治理文件</td>
+</tr>
+<tr>
+<td><code>VISIBLE</code></td>
+<td>需要读写，只靠工具闸门</td>
+<td><code>sel_hmac.key</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>反直觉的一点：治理文件是<strong>故意可读</strong>的。遮蔽策略文件会让它回退到宽松的默认值，隐藏上限反而等于移除上限。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 文档之间有不一致</div><p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L454">overview.md</a> 说 agent “既不能读也不能写”自己的上限，而 AGENTS.md 明确说可以读、不能写。AGENTS 的说法更新也更详细，并有测试钉住，应以它为准。另外 <code>sel_hmac.key</code> 是 <code>VISIBLE</code>，AGENTS 自己列为遗留问题：审计密钥没有 OS 层保护。</p>
+</div>
+<h3 id="s6-3">沙箱分级</h3>
+<p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sandbox.py#L1">sandbox.py</a> 的文件头：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>档位</th>
+<th>遮蔽</th>
+<th>留下</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>standard</code>（<code>auto</code> 解析成它）</td>
+<td><code>~/.gnupg</code>、<code>~/.docker</code>、<code>~/.azure</code>、gcloud、crew vault</td>
+<td><code>~/.aws</code>、<code>~/.ssh</code>、<code>~/.kube</code></td>
+</tr>
+<tr>
+<td><code>strict</code></td>
+<td>再加 <code>~/.aws</code>、<code>~/.kube</code>、<code>~/.config/gh</code>、<code>~/.ssh</code></td>
+<td>仅 <code>known_hosts</code></td>
+</tr>
+<tr>
+<td><code>cc</code></td>
+<td>Claude Code 后端专用</td>
+<td>只读的 <code>~/.aws/config</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>默认档位下，agent 里的 shell 能读 <code>~/.aws</code> 和 <code>~/.ssh</code>。</strong> 这是刻意的取舍，让 <code>aws</code> CLI 和 git-over-SSH 能用。在意这一点就开 <code>strict</code>。另外，OS 机制不可用时沙箱会优雅回退到无沙箱，并记警告（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sandbox.py#L25">文件头</a>）。</p>
+<p>Linux 上不需要 root，靠用户命名空间实现：</p>
+
+<figure class="flow"><div class="flow-head">Linux 沙箱的启动顺序<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;Linux 沙箱的启动顺序&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;fork&quot;, &quot;s&quot;: &quot;子进程&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;unshare NEWUSER&quot;, &quot;s&quot;: &quot;新用户命名空间&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写 UID/GID 映射&quot;, &quot;s&quot;: &quot;父进程完成&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;n&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;unshare NEWNS&quot;, &quot;s&quot;: &quot;新挂载命名空间&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;绑定挂载空目录&quot;, &quot;s&quot;: &quot;遮蔽敏感路径&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;exec harness&quot;, &quot;s&quot;: &quot;真实 UID 不变&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;u&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;u&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;n&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;n&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 210.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 170.0}}"></div><figcaption>子进程保留真实 UID，所以工具链正常工作；父进程完全不受影响（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sandbox.py#L20">sandbox.py</a>）。macOS 走 <code>sandbox-exec</code> 的 Seatbelt 配置。</figcaption></figure>
+<h3 id="s6-4">治理</h3>
+<p><code>effective = POLICY ∩ PROFILE</code>。POLICY 是企业上限，启动时从 trust root 加载；PROFILE 是每个界面的收窄。评估器不认识 scope 的名字，只按四种原型工作（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/platform/governance.py#L1">governance.py</a>）：<code>ScopedRuleset</code>、<code>OrdinalControl</code>、<code>CapabilityGate</code>、<code>ScopedMap</code>。所以新增 scope 是改数据，不是改评估器。</p>
+<h3 id="s6-5">文化：不要追拼写</h3>
+<p>AGENTS 有一条规则叫“正则拼写追逐是 review 异味”，还有一条是“沙箱范围由操作者决定，不由你决定”：加一个没人要求的遮蔽，会在几天后表现为工作莫名停了。#12103 曾在同一段代码上花了 11 轮。贡献安全相关代码前，一定要读这部分。</p>
+<h2 id="s7">编排</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>子 agent</td>
+<td>派生隔离的后台 agent</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/subagent.py">subagent.py</a></td>
+</tr>
+<tr>
+<td>Cron</td>
+<td>定时任务，CLI 和 gateway 用文件锁共享 <code>crons.json</code></td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/cron.py">cron.py</a></td>
+</tr>
+<tr>
+<td>TaskRunner</td>
+<td>规格 → 分解 → 执行 → 重试 → 重规划 → 检查点</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/taskrunner.py">taskrunner.py</a></td>
+</tr>
+<tr>
+<td>心跳</td>
+<td>周期性维护</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/heartbeat.py">heartbeat.py</a></td>
+</tr>
+<tr>
+<td>动态工作流</td>
+<td>工作流引擎</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/tree/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/workflows">workflows/</a></td>
+</tr>
+<tr>
+<td>Crew</td>
+<td>agent 团队</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/system-specs/modules/crew-mode.md">crew-mode</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>kirocrew</code> 本身只是一个 agent 配置，它之所以是协调者，是因为 gateway 默认用它，并且它持有 <code>spawn_run</code>、<code>cron_add</code>、<code>task_run</code> 这些 MCP 工具（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L63">agent hierarchy</a>）。<strong>gateway 代码是 agent 无关的，协调行为在配置里。</strong></p>
+
+<figure class="flow"><div class="flow-head">协调行为靠 MCP 工具回到 gateway<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;协调行为靠 MCP 工具回到 gateway&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;gw&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Gateway&quot;, &quot;s&quot;: &quot;agent 无关&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ag&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;kirocrew agent&quot;, &quot;s&quot;: &quot;只是一份配置&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mcp&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;mcp_core&quot;, &quot;s&quot;: &quot;spawn · task · cron&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sub&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;子 agent&quot;, &quot;s&quot;: &quot;subagent:{id}&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Cron&quot;, &quot;s&quot;: &quot;cron:{id}&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tk&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;TaskRunner&quot;, &quot;s&quot;: &quot;多步骤&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;gw&quot;, &quot;b&quot;: &quot;ag&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ag&quot;, &quot;b&quot;: &quot;mcp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mcp:r&quot;, &quot;b&quot;: &quot;sub:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mcp&quot;, &quot;b&quot;: &quot;cr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mcp:r&quot;, &quot;b&quot;: &quot;tk:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>工具在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/mcp_core.py">mcp_core.py</a>。这些后台任务又都通过 <code>SessionManager</code> 开新会话，所以和交互会话共用同一套闸门。</figcaption></figure>
+<p>Cron 有一条来之不易的规则：脚本正文不能交给 shell 闸门。这条规则试过（#4243），带来一连串误报（#7912、#8563 等），每次都靠再加一层 AST 修补，还是挡不住 <code>open(a + b)</code>。现在脚本正文只走整体检测器，运行时靠沙箱（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L137">AGENTS.md</a>）。</p>
+<h2 id="s8">App 边界</h2>
+<p>第 8 条原则是“一切皆 App”（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/TENETS.md#L19">TENETS</a>）。<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L504">The app boundary</a> 把它落成一条线：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>留在核心</th>
+<th>为什么不能是 App</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>会话和转录</td>
+<td>每个界面读同一份对话</td>
+</tr>
+<tr>
+<td>记忆和教训</td>
+<td>跨会话共享</td>
+</tr>
+<tr>
+<td>审批和 PreToolUse 闸门</td>
+<td>价值就在于绕不过去。App 提供的闸门就是带开关的闸门</td>
+</tr>
+<tr>
+<td>治理上限</td>
+<td>可替换的上限不是上限</td>
+</tr>
+<tr>
+<td>事件总线和身份</td>
+<td>App 之间的约定基础</td>
+</tr>
+</tbody>
+</table></div>
+<p>其余都应该是 App。<strong>仓库不再接受新的内置 App</strong>，新 App 从自己的仓库经 registry 发布（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/app-kit/README.md">App Kit</a>）。</p>
+<p>平台层用 CPP 接缝（Composed Platform Providers）支持企业版：<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/platform/interfaces.py">interfaces.py</a> 定义 Protocol，核心从不判断跑的是哪个版本。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 大楼和租户</div><ul>
+<li><strong>大楼结构和门禁</strong> = 核心：会话、记忆、闸门、治理。</li>
+<li><strong>租户</strong> = App：各自装修，但进出都走大楼门禁。</li>
+<li><strong>物业规章</strong> = 治理上限：租户可以把自己的门锁得更紧，不能拆大楼的门。</li>
+</ul>
+<p>如果某个界面只能盖进大楼结构里，原则说这是平台的缺陷，不是破例的理由。</p>
+</div>
+<h2 id="s9">端到端：一条 Dashboard 消息</h2>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 用户在 Dashboard 发送一条消息</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;浏览器&quot;, &quot;s&quot;: &quot;React SPA&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;chat 处理&quot;, &quot;s&quot;: &quot;chat_runner&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hk&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;消息 hook&quot;, &quot;s&quot;: &quot;on_message&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;get_or_create&quot;, &quot;s&quot;: &quot;取会话&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ContextBuilder&quot;, &quot;s&quot;: &quot;拼上下文&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;AcpClient&quot;, &quot;s&quot;: &quot;发 prompt&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;harness&quot;, &quot;s&quot;: &quot;模型 + 工具&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;闸门&quot;, &quot;s&quot;: &quot;on_tool_call&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;st&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;流式回传&quot;, &quot;s&quot;: &quot;WebSocket 等&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;log&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;落盘&quot;, &quot;s&quot;: &quot;JSONL · 整理&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;u&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;hk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hk&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;st&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;st&quot;, &quot;b&quot;: &quot;log&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="u,r"><div class="step-title">1. 进入后端</div><p>消息进入 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/dashboard/chat_runner.py#L789">_run_chat</a>，这是聊天运行的核心，由 <code>chat_turn</code> 的 owner 模块组合。</p>
+</div><div class="step" data-hl="r,hk"><div class="step-title">2. 消息 hook</div><p><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/hooks.py#L667">on_message</a> 可以自动回复、改写、注入或拒绝。</p>
+</div><div class="step" data-hl="hk,s"><div class="step-title">3. 取会话</div><p><code>get_or_create</code> 按 session key 拿到会话。warm pool 开启时可以省掉冷启动。</p>
+</div><div class="step" data-hl="s,c"><div class="step-title">4. 拼上下文</div><p><code>ContextBuilder</code> 组装记忆、技能和教训。</p>
+</div><div class="step" data-hl="c,a"><div class="step-title">5. 发送</div><p><code>AcpClient</code> 通过 JSON-RPC 把 prompt 发给 harness 子进程。</p>
+</div><div class="step" data-hl="a,h"><div class="step-title">6. harness 运行</div><p>harness 调 LLM，流式返回文本和工具调用事件。</p>
+</div><div class="step" data-hl="h,g"><div class="step-title">7. 工具闸门</div><p>每个工具调用都由 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/hooks.py#L795">on_tool_call</a> 判定，结果写入 SEL。需要审批时生成卡片，超时就拒绝并说明原因。</p>
+</div><div class="step" data-hl="g,st"><div class="step-title">8. 回传</div><p>事件转成界面更新，流式推给前端。</p>
+</div><div class="step" data-hl="st,log"><div class="step-title">9. 落盘</div><p>追加到 ConversationLog，异步触发记忆整理。<code>finally</code> 里 <code>release()</code> 会话。</p>
+</div></div></div>
+<p>步骤的顺序来自 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md#L111">Message flow</a>，具体函数我核对了主要节点，没有逐行跟完 <code>_run_chat</code>。</p>
+<h2 id="s10">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kiro Crew</td>
+<td>Apache-2.0，Copyright Amazon</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/NOTICE#L1">NOTICE</a></td>
+</tr>
+<tr>
+<td>OpenDyslexic 字体</td>
+<td>SIL OFL 1.1</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/NOTICE#L16">NOTICE</a></td>
+</tr>
+<tr>
+<td>桌面版的 FFmpeg</td>
+<td>LGPL 2.1+，独立可执行文件</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/NOTICE#L46">NOTICE</a></td>
+</tr>
+<tr>
+<td>其他第三方</td>
+<td>各自许可证</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/THIRD-PARTY-NOTICES">THIRD-PARTY-NOTICES</a></td>
+</tr>
+<tr>
+<td><code>kiro-cli</code></td>
+<td>外部，不在此仓库</td>
+<td>请看其自身条款</td>
+</tr>
+</tbody>
+</table></div>
+<p>几处值得注意：macOS 的后台点击路径用了未公开接口（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/NOTICE#L22">NOTICE</a>）；工具标题分类器重写了 Codex 的规则集，保留了 Apache 声明。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用</td>
+<td>允许</td>
+<td>注意默认有匿名遥测，可关闭（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/README.md#L258">README</a>）</td>
+</tr>
+<tr>
+<td>提 PR</td>
+<td>允许</td>
+<td>我没有在 CONTRIBUTING 里找到 CLA/DCO 要求</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留 LICENSE、NOTICE；不要用 Kiro 和 Amazon 商标</td>
+</tr>
+<tr>
+<td>发安装包</td>
+<td>允许</td>
+<td>带上 THIRD-PARTY-NOTICES；FFmpeg 要满足 LGPL</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>Apache-2.0 无网络条款，但 harness 的条款要另看</td>
+</tr>
+<tr>
+<td>上架 App</td>
+<td>允许</td>
+<td>走 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/app-kit/publishing-guide.md">发布指南</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：GitHub API 显示 <code>LICENSE</code> 只有 2026-07-06 一次提交（#5），之后未变。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解，真要分发请咨询律师。</p>
+</div>
+<h2 id="s11">贡献与定制</h2>
+<h3 id="s11-1">开发环境</h3>
+<pre><code class="language-bash">git clone https://github.com/kirodotdev/KiroCrew.git
+cd KiroCrew
+make build
+source .venv/bin/activate
+</code></pre>
+<p>要求 Python 3.12+、Node.js 22.12+，以及一个已登录的 ACP 后端（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/CONTRIBUTING.md#L60">CONTRIBUTING</a>）。</p>
+<h3 id="s11-2">项目规则</h3>
+<ul>
+<li><strong>AGENTS.md 是路由器，不是手册。</strong> 改某个子系统前，先读 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md#L34">Read before you touch</a> 表里对应的规格，并在同一 commit 更新。这是全仓库最有用的一张表。</li>
+<li>认领 issue：在 T1/T2 的 issue 上评论 <code>/claim</code>，7 天期限，最多同时 2 个（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/CONTRIBUTING.md#L35">Claiming</a>）。</li>
+<li>不要写死 model id。</li>
+<li>不接受新的内置 App。</li>
+<li>用户可见的决定记录在 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/decisions/README.md">docs/decisions/</a>，条目不可变，改变主意要写新条目。动手“修”一个看起来奇怪的文案前先查这里。</li>
+<li>硬规则由 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AUTOSDE.yaml">AUTOSDE.yaml</a> 定义，Claude 和 Codex 的 PR reviewer 都执行。</li>
+<li>CI 规则见 <a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/ci/ci-and-reviews.md">ci-and-reviews.md</a>。</li>
+</ul>
+<h3 id="s11-3">适合入手的方向</h3>
+<ul>
+<li>按 <code>area:</code> 标签筛 <code>tier:T1</code> 的 issue。</li>
+<li>写 App 和 Skill，完全不碰核心。</li>
+<li>文档和规格之间的不一致，比如前面提到的那两处。</li>
+</ul>
+<p>需要避开：安全相关的“顺手加固”；第二个 provider（<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/system-specs/oss-fork-boundaries.md#L33">已明确禁止</a>）；把内部耦合带回来。</p>
+<h3 id="s11-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">想扩展 Kiro Crew<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;想扩展 Kiro Crew&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;要加什么？&quot;, &quot;s&quot;: &quot;从外到内&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Skill&quot;, &quot;s&quot;: &quot;教 agent 做事&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;MCP 服务&quot;, &quot;s&quot;: &quot;给 agent 工具&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;App&quot;, &quot;s&quot;: &quot;界面 + agent + cron&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;harness 适配&quot;, &quot;s&quot;: &quot;新的 ACP 后端&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;改核心&quot;, &quot;s&quot;: &quot;读规格 · 过 review&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;b:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;d:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>能写成 App 就不要改核心，这是项目的硬性方向。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>代价</th>
+<th>依赖</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Skill</td>
+<td>低</td>
+<td>Markdown</td>
+<td>工作流程、团队习惯</td>
+</tr>
+<tr>
+<td>MCP 服务</td>
+<td>中</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/mcp.md">MCP 规范</a></td>
+<td>新工具</td>
+</tr>
+<tr>
+<td>App</td>
+<td>中</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/app-kit/getting-started.md">App Kit</a></td>
+<td>带界面的完整功能</td>
+</tr>
+<tr>
+<td>harness 适配</td>
+<td>高</td>
+<td>要满足 harness parity</td>
+<td>接入新 agent</td>
+</tr>
+<tr>
+<td>企业版接缝</td>
+<td>高</td>
+<td>CPP Protocol</td>
+<td>内部部署</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s11-5">仓库里没有的东西</h3>
+<ul>
+<li><strong><code>kiro-cli</code> 和模型服务</strong>：默认运行时是外部程序，需要单独安装和登录。</li>
+<li><strong>企业版组件</strong>：通过接缝加载，公开构建没有。</li>
+<li><strong>内部扫描的标记列表</strong>：<code>internal-content-scan</code> 的标记是私有的。</li>
+<li><strong>遥测接收端、App registry 和下载服务</strong>：在 <code>download.crew.kiro.dev</code> 等外部地址。</li>
+</ul>
+<h2 id="s12">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>路由表</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/AGENTS.md">AGENTS.md</a></td>
+</tr>
+<tr>
+<td>架构总览</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/overview.md">overview.md</a></td>
+</tr>
+<tr>
+<td>模块规格</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/system-specs/README.md">system-specs</a></td>
+</tr>
+<tr>
+<td>入口</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/cli.py">cli.py</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/dashboard/server.py">server.py</a></td>
+</tr>
+<tr>
+<td>会话</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/session.py">session.py</a></td>
+</tr>
+<tr>
+<td>ACP</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client.py">client.py</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/acp/client_turn.py">client_turn.py</a></td>
+</tr>
+<tr>
+<td>上下文</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/context.py">context.py</a></td>
+</tr>
+<tr>
+<td>记忆</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/memory.py">memory.py</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/vector_memory.py">vector_memory.py</a></td>
+</tr>
+<tr>
+<td>闸门</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/hooks.py">hooks.py</a></td>
+</tr>
+<tr>
+<td>治理</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/platform/governance.py">governance.py</a></td>
+</tr>
+<tr>
+<td>沙箱</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sandbox.py">sandbox.py</a></td>
+</tr>
+<tr>
+<td>审计</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/src/kiro_crew/sel.py">sel.py</a></td>
+</tr>
+<tr>
+<td>安全深入</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/docs/architecture/security-deep-dive.md">security-deep-dive.md</a></td>
+</tr>
+<tr>
+<td>前端</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/website/AGENTS.md">website/AGENTS.md</a></td>
+</tr>
+<tr>
+<td>原则与治理</td>
+<td><a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/TENETS.md">TENETS.md</a>、<a class="src" href="https://github.com/kirodotdev/KiroCrew/blob/083e552cfc223f26aa7a4a987d062ee96999b650/GOVERNANCE.md">GOVERNANCE.md</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

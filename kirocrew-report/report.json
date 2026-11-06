@@ -1,0 +1,12 @@
+{
+  "title": "Kiro Crew 源码导读",
+  "kicker": "Source-level guide · kirodotdev/KiroCrew",
+  "lede": "Kiro Crew 是运行在你自己硬件上的持久开发工作台：一个 gateway 进程把 CLI、Dashboard、消息渠道接到 ACP agent。这份导读讲它的主干、安全模型、记忆和编排，以及在 220 万行 Python 里该从哪读起。",
+  "brand": "Kiro Crew 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"kc": {"repo": "kirodotdev/KiroCrew", "sha": "083e552cfc223f26aa7a4a987d062ee96999b650", "local": "~/development/kirocrew-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}
