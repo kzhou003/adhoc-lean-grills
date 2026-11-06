@@ -1,0 +1,12 @@
+{
+  "title": "Apache TVM TIRx 源码导读",
+  "kicker": "Source-level guide · apache/tvm-tirx",
+  "lede": "TIRx 是为 agent 写 GPU kernel 而重建的编译器底座。这份导读从一个 add_one 出发，讲清它的 IR、TVMScript、lowering pipeline、CUDA 后端和跨语言扩展机制，以及贡献和定制时要知道的事。",
+  "brand": "TIRx 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"tx": {"repo": "apache/tvm-tirx", "sha": "40d297af8c9b13a5bc890e0e5622a578c21469b2", "local": "~/development/tirx-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}

@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apache TVM TIRx 源码导读</title>
+<meta name="description" content="TIRx 是为 agent 写 GPU kernel 而重建的编译器底座。这份导读从一个 add_one 出发，讲清它的 IR、TVMScript、lowering pipeline、CUDA 后端和跨语言扩展机制，以及贡献和定制时要知道的事。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:Apache TVM TIRx 源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">TIRx 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">为什么还要一层编译器</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">总体结构</a>
+<a class="nav-l3" href="#s2-4">它从哪来</a>
+<a class="nav-l2" href="#s3">IR 与对象系统</a>
+<a class="nav-l3" href="#s3-1">职责</a>
+<a class="nav-l3" href="#s3-2">难点</a>
+<a class="nav-l3" href="#s3-3">原理：一份对象，三种语言</a>
+<a class="nav-l2" href="#s4">TVMScript：从 Python 到 IR</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l3" href="#s4-2">原理</a>
+<a class="nav-l3" href="#s4-3">Meta 编程</a>
+<a class="nav-l2" href="#s5">编译流水线</a>
+<a class="nav-l3" href="#s5-1">职责</a>
+<a class="nav-l3" href="#s5-2">pipeline 的结构</a>
+<a class="nav-l3" href="#s5-3">调试和替换</a>
+<a class="nav-l2" href="#s6">符号分析</a>
+<a class="nav-l3" href="#s6-1">职责</a>
+<a class="nav-l3" href="#s6-2">结构</a>
+<a class="nav-l2" href="#s7">CUDA 后端</a>
+<a class="nav-l3" href="#s7-1">三个构造</a>
+<a class="nav-l3" href="#s7-2">表驱动的 PTX</a>
+<a class="nav-l3" href="#s7-3">Tile 操作</a>
+<a class="nav-l3" href="#s7-4">同步：写成库</a>
+<a class="nav-l3" href="#s7-5">代码生成和运行时</a>
+<a class="nav-l3" href="#s7-6">其他后端</a>
+<a class="nav-l2" href="#s8">扩展机制</a>
+<a class="nav-l3" href="#s8-1">四个扩展点</a>
+<a class="nav-l3" href="#s8-2">官方示例</a>
+<a class="nav-l2" href="#s9">端到端：add_one 的一生</a>
+<a class="nav-l2" href="#s10">开源许可证</a>
+<a class="nav-l2" href="#s11">贡献与定制</a>
+<a class="nav-l3" href="#s11-1">开发环境</a>
+<a class="nav-l3" href="#s11-2">项目规则</a>
+<a class="nav-l3" href="#s11-3">适合入手的方向</a>
+<a class="nav-l3" href="#s11-4">定制路线</a>
+<a class="nav-l3" href="#s11-5">仓库里没有的东西</a>
+<a class="nav-l2" href="#s12">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · apache/tvm-tirx</div><h1>Apache TVM TIRx 源码导读</h1><p class="lede">TIRx 是为 agent 写 GPU kernel 而重建的编译器底座。这份导读从一个 add_one 出发，讲清它的 IR、TVMScript、lowering pipeline、CUDA 后端和跨语言扩展机制，以及贡献和定制时要知道的事。</p><p class="meta">apache/tvm-tirx @ 40d297a</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给有编译器或 GPU 背景、第一次接触 TIRx 的工程师。读完你应该能做到：说清一段 TVMScript 怎么变成 CUDA 和 host 代码；知道新算子、新 pass、新后端该放在哪；判断 TIRx 适不适合做你的 kernel 工具链底座。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：它要解决什么问题，要求和限制是什么，整体结构。</li>
+<li><strong>IR 与对象系统</strong>：节点、类型、不可变树、TVM-FFI 反射。</li>
+<li><strong>TVMScript</strong>：Python 函数怎么变成 IR。</li>
+<li><strong>编译流水线</strong>：<code>compile</code> 的每个阶段和每个 pass。</li>
+<li><strong>符号分析</strong>：<code>sym</code> 命名空间。</li>
+<li><strong>CUDA 后端</strong>：tile 操作、PTX 表、代码生成、运行时。</li>
+<li><strong>扩展机制</strong>：不重编编译器就能加类型、算子、pass、后端。</li>
+<li><strong>端到端</strong>：<code>add_one</code> 的完整旅程。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>apache/tvm-tirx</code> @ <code>40d297a</code>（2026-11-05 提交），包版本 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/pyproject.toml#L20">0.1.0b1</a>。这是 beta 版本，文档和 API 还在快速变化。我没有构建或运行过这个项目，下面所有说法来自阅读源码和文档。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">为什么还要一层编译器</h3>
+<p>README 的立场很直接：未来 GPU kernel 都会由 AI agent 开发、优化和验证（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/README.md#L22">README</a>）。那 agent 既然能直接写 CUDA、PTX 甚至 SASS，为什么还要编译器？</p>
+<p><a href="https://tvm.apache.org/2026/11/03/rethinking-abstractions-in-the-agentic-era">官方博客</a> 给的回答分成两点：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>为什么 agent 自己做不好</th>
+<th>TIRx 的回答</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>分析</strong></td>
+<td>逐字读程序能发现问题，但成本高。内存访问、同步这类检查用结构化算法更便宜</td>
+<td>结构化 IR 加上符号分析、遍历工具</td>
+</tr>
+<tr>
+<td><strong>验证</strong></td>
+<td>程序对不对不能只靠 agent 的判断，需要有精确语义的程序表示</td>
+<td>小而稳定的核心 IR</td>
+</tr>
+<tr>
+<td><strong>迭代速度</strong></td>
+<td>改算子要重编编译器，agent 写得越快，这部分占比越高</td>
+<td>动态扩展：扩展放在独立仓库，运行时加载</td>
+</tr>
+<tr>
+<td><strong>语言选择</strong></td>
+<td>实验性分析适合 Python，高频 pass 适合 Rust/C++</td>
+<td>Python、C++、Rust 一等支持</td>
+</tr>
+<tr>
+<td><strong>维护压力</strong></td>
+<td>kernel 可以生成了就丢，底层却要稳定</td>
+<td>按稳定性分层：底座小而稳，上层随便变</td>
+</tr>
+</tbody>
+</table></div>
+<p>这和传统 DSL 的思路相反。<a href="https://tvm.apache.org/tirx/">编程总览</a> 的说法是：成熟 kernel 可以把边界画得高，让编译器藏起线程分配和内存移动；但在硬件前沿，新指令先于编译器自动化出现，所以 TIRx 把边界<strong>画得低</strong>（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/index.rst#L26">设计哲学</a>）。流水线结构、同步、角色分配、内存放置都直接写在源码里。</p>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>给 kernel 编译器和 agent harness 提供共享的 IR、分析、变换和代码生成底座</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>TVMScript 写程序；核心 IR 打印/解析；host LLVM 和 CUDA 代码生成；多设备后端</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>大程序上的 pass 速度，这是扩展推荐用 Rust 的原因（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/advanced/defining_ir_extensions.rst#L43">文档</a>）</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>依赖 TVM-FFI ABI；CUDA 代码最终交给 NVRTC 或 nvcc；LLVM 版本由 <code>mlc-llvm-static</code> 固定</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>不可变 IR；开放的 <code>Op</code> 系统；反射；表驱动 PTX；target 决定 pipeline</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>Apache-2.0，属于 ASF 项目</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">总体结构</h3>
+
+<figure class="flow"><div class="flow-head">从 TVMScript 到可执行模块<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从 TVMScript 到可执行模块&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;py&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TVMScript&quot;, &quot;s&quot;: &quot;@T.function&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;par&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;parser&quot;, &quot;s&quot;: &quot;script/parser&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ir&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TIRx IR&quot;, &quot;s&quot;: &quot;IRModule&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pass&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;pipeline&quot;, &quot;s&quot;: &quot;Sequential passes&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;split&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;host / device&quot;, &quot;s&quot;: &quot;按 target 拆分&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cg&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;codegen&quot;, &quot;s&quot;: &quot;LLVM · CUDA · …&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;exe&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;Executable&quot;, &quot;s&quot;: &quot;tvm_ffi.Module&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ext&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;扩展包&quot;, &quot;s&quot;: &quot;Rust · Python&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sym&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;sym 分析&quot;, &quot;s&quot;: &quot;Analyzer · Z3&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ffi&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;TVM-FFI&quot;, &quot;s&quot;: &quot;对象 · 反射 · 调用&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;py&quot;, &quot;b&quot;: &quot;par&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;par&quot;, &quot;b&quot;: &quot;ir&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ir&quot;, &quot;b&quot;: &quot;pass&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pass&quot;, &quot;b&quot;: &quot;split&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;split&quot;, &quot;b&quot;: &quot;cg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cg&quot;, &quot;b&quot;: &quot;exe&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ext:t&quot;, &quot;b&quot;: &quot;ir:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;sym:t&quot;, &quot;b&quot;: &quot;pass:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;ffi:t&quot;, &quot;b&quot;: &quot;py:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>深色是外部输入和依赖。TVM-FFI 是 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/.gitmodules">git 子模块</a>，提供对象和跨语言调用。分层说明见 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L188">AGENTS.md 的架构概念</a>。</figcaption></figure>
+<p>命名空间和目录的对应关系：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>命名空间</th>
+<th>职责</th>
+<th>Python</th>
+<th>C++</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ir</code></td>
+<td>共享的表达式、类型、语句、函数、模块</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/ir">ir/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/ir">src/ir</a></td>
+</tr>
+<tr>
+<td><code>tirx</code></td>
+<td>张量程序构造、layout、分析、lowering</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx">tirx/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx">src/tirx</a></td>
+</tr>
+<tr>
+<td><code>sym</code></td>
+<td>化简和符号推理</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/sym">sym/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/sym">src/sym</a></td>
+</tr>
+<tr>
+<td><code>script</code></td>
+<td>解析和打印</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script">script/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/script">src/script</a></td>
+</tr>
+<tr>
+<td><code>backend</code></td>
+<td>目标相关的操作、变换、代码生成</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend">backend/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend">src/backend</a></td>
+</tr>
+<tr>
+<td><code>runtime</code></td>
+<td>设备内存和模块加载</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/runtime">runtime/</a></td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/runtime">src/runtime</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-4">它从哪来</h3>
+<p>TIRx 不是新写的，来自 <code>apache/tvm</code> 里的 TensorIR 一脉。LICENSE 的提交历史显示：2026-10-15 有一次 “Bringup tirx in standalone folder”，10-17 有 “Make standalone TIRx the repository root”（GitHub API 核实）。所以文档里还能看到 “Adapted from Apache TVM” 的标记（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/index.rst#L18">示例</a>）。</p>
+<h2 id="s3">IR 与对象系统</h2>
+<h3 id="s3-1">职责</h3>
+<p>IR 是一棵树：类型、表达式、语句、函数、模块。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/ir_guides/overview.rst#L32">IR 总览</a> 说明 IR 对象<strong>不可变</strong>：分析只读，变换构造新树，未改动的部分共享。</p>
+<h3 id="s3-2">难点</h3>
+<p>这棵树要同时被 C++ pass、Python pass、Rust pass 操作，而且类型可以运行时新增。如果每种语言各有一套节点定义，动态扩展就做不到。</p>
+<h3 id="s3-3">原理：一份对象，三种语言</h3>
+<p>所有节点都是 TVM-FFI 对象，用 <code>FooObj</code> 数据类加 <code>Foo</code> 引用包装，字段通过 <code>ffi::reflection::ObjectDef</code> 暴露（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L169">C++ 约定</a>）。Python 用 <code>@tvm_ffi.register_object(&quot;type.Key&quot;)</code> 绑定同一个类型键（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L179">Python 约定</a>）。因此 Python 看到的 <code>Add</code> 不是副本，而是 C++ 对象的句柄。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>抽象</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Type</code></td>
+<td>值的类型：标量、张量</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/type.h">type.h</a></td>
+</tr>
+<tr>
+<td><code>Expr</code></td>
+<td>计算值</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/expr.h">expr.h</a></td>
+</tr>
+<tr>
+<td><code>Stmt</code></td>
+<td>语句和顺序</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/stmt.h">stmt.h</a></td>
+</tr>
+<tr>
+<td><code>Op</code></td>
+<td>开放的算子注册表</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/op.h">op.h</a></td>
+</tr>
+<tr>
+<td><code>IRModule</code></td>
+<td>一组命名函数，加 attrs 和全局信息</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/module.h">module.h</a></td>
+</tr>
+<tr>
+<td><code>Pass</code></td>
+<td>模块到模块的变换</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/ir/transform.h">transform.h</a></td>
+</tr>
+<tr>
+<td><code>Layout</code> / <code>TileLayout</code></td>
+<td>逻辑张量到物理存储的映射</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/tirx/layout.h">layout.h</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/layout.py#L592">layout.py</a></td>
+</tr>
+<tr>
+<td><code>Target</code></td>
+<td>编译目标和后端配置</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/target/target.py">target.py</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>核心节点少、算子开放</strong>是这里的关键设计。新增硬件指令时不用加节点，只要注册一个 <code>Op</code>，所以博客说底座能靠算子系统表示新的 CUDA/PTX，而不改 IR 基础设施。</p>
+<p>看一个具体例子。<code>B[i] = A[i] + 1</code> 右边的值打印出来是：</p>
+<pre><code class="language-text">Add
+├── a: TensorLoad(source=A, indices=[i])
+└── b: FloatImm(value=1.0)
+</code></pre>
+<p>来自 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/ir_guides/overview.rst#L88">IR 总览</a>，用 <code>ir.format_tree</code> 打印。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 带标准插座的墙</div><ul>
+<li><strong>墙</strong> = 核心 IR：节点集合小，不常改。</li>
+<li><strong>插座</strong> = <code>Op</code> 注册表：什么设备都能插，形状统一。</li>
+<li><strong>电器</strong> = 每条 PTX 指令、每个扩展算子。</li>
+<li><strong>电工手册</strong> = 反射信息：Python、C++、Rust 都按同一份手册接线。</li>
+</ul>
+<p>加一台新电器不用拆墙，这就是“不重建编译器就能扩展”的含义。</p>
+</div>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><p><code>tvm_tirx.tirx</code> 和 <code>tvm_tirx.ir</code> 是两层。<code>ir</code> 放通用节点，<code>tirx</code> 在其上加张量语义。写 pass 前先确认节点属于哪一层，否则会在错误的 functor 上实现。</p>
+</div>
+<h2 id="s4">TVMScript：从 Python 到 IR</h2>
+<h3 id="s4-1">职责</h3>
+<p>TVMScript 是写 IR 的 Python 语法，也是 IR 打印出来的样子。这一点保证了打印和解析能往返（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/ir_guides/printing_and_parsing.rst">打印与解析</a>）。</p>
+<h3 id="s4-2">原理</h3>
+<p><code>@T.function</code> <strong>不执行函数体</strong>。它拿到源码 AST，改写成调用 IR builder 的代码，再运行这段 builder。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/transpile.py">transpile.py</a> 的文件头写得很清楚：入口先获取新的 AST，用 <code>PrescanContext</code> 收集语法事实，递归改写器消费这些事实；每个函数一个新的 <code>FunctionContext</code>。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ @T.function 的执行过程</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;src&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Python 源码&quot;, &quot;s&quot;: &quot;函数 AST&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pre&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;prescan&quot;, &quot;s&quot;: &quot;收集语法事实&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tr&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;transpile&quot;, &quot;s&quot;: &quot;AST 改写&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bd&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;builder 代码&quot;, &quot;s&quot;: &quot;重组后执行&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;nat&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;native frame&quot;, &quot;s&quot;: &quot;C++ IR builder&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fn&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;tirx.Function&quot;, &quot;s&quot;: &quot;最终 IR&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;src&quot;, &quot;b&quot;: &quot;pre&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pre&quot;, &quot;b&quot;: &quot;tr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tr&quot;, &quot;b&quot;: &quot;bd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bd&quot;, &quot;b&quot;: &quot;nat&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;nat&quot;, &quot;b&quot;: &quot;fn&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 165.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="src"><div class="step-title">1. 拿到源码</div><p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/entry.py#L312">make_decorator</a> 生成装饰器，<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/entry.py#L775">parse</a> 是解析入口。</p>
+</div><div class="step" data-hl="src,pre"><div class="step-title">2. 预扫描</div><p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/prescan.py">prescan.py</a> 先走一遍语法树，把事实记下来。这些事实之后不会被改写器修改。</p>
+</div><div class="step" data-hl="pre,tr"><div class="step-title">3. 改写</div><p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/transpile.py#L244">IRBuilderTranspiler</a> 是一个 <code>ast.NodeTransformer</code>，把 <code>for</code>、<code>if</code>、下标赋值改写成 builder 调用。</p>
+</div><div class="step" data-hl="tr,bd"><div class="step-title">4. 重组并执行</div><p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser/entry.py#L77">_recompose_builder</a> 把生成的 helper 组回来，入口执行它并释放临时捕获。</p>
+</div><div class="step" data-hl="bd,nat,fn"><div class="step-title">5. 进入 native</div><p>声明、参数、区域结果和最终 IR 都由 <a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/script/ir_builder">C++ frame</a> 持有。Python 上下文只是临时翻译状态，不镜像构造状态。</p>
+</div></div></div>
+<h3 id="s4-3">Meta 编程</h3>
+<p>kernel 里大量重复的同步逻辑靠 <code>@T.inline</code> 和 <code>@T.meta_class</code> 复用（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/metaprogramming.rst">metaprogramming</a>）。例子是 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/lang/pipeline.py">pipeline.py</a>：<code>PipelineState</code>、<code>MBarrier</code>、<code>TMABar</code>、<code>Pipeline</code> 都在解析时发出 TIR，自身不会进入 IR。</p>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/lang/pipeline.py#L27">_tcgen05_commit_is_unicast</a> 的注释说明了为什么这段逻辑要留在 inline 函数之外：inline 求值器不短路条件表达式，这个判断需要真正的 Python 语义。这种细节在写自己的 meta 类时会遇到。</p>
+<h2 id="s5">编译流水线</h2>
+<h3 id="s5-1">职责</h3>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/_compile.py#L164">compile</a> 把 <code>Function</code> 或 <code>IRModule</code> 变成 <code>Executable</code>。它做五步：确定绑定目标；确定搜索 pipeline 用的目标；确定 host 目标；运行 pipeline；拆分 host/device 后分别收尾和生成代码。</p>
+<p>host 的默认选择有个细节：LLVM 启用就用 <code>llvm</code>，否则用 <code>c</code>（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/_compile.py#L215">_compile.py</a>）。</p>
+<h3 id="s5-2">pipeline 的结构</h3>
+<p>pipeline 不是一个 pass 列表，而是<strong>三元组</strong>：lowering pass、host 收尾工厂、device 收尾工厂（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py#L45">tirx_pipeline</a>）。</p>
+
+<figure class="flow"><div class="flow-head">默认 pipeline 的阶段<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;默认 pipeline 的阶段&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TileDispatch&quot;, &quot;s&quot;: &quot;展开 tile 操作&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;l&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;LowerTensorLayouts&quot;, &quot;s&quot;: &quot;layout → 物理&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;FlattenTensor&quot;, &quot;s&quot;: &quot;多维压平&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Vectorize / Unroll&quot;, &quot;s&quot;: &quot;循环优化&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;VerifyMemory&quot;, &quot;s&quot;: &quot;内存检查&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;AnnotateEntryFunc&quot;, &quot;s&quot;: &quot;标记入口&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;SplitHostDevice&quot;, &quot;s&quot;: &quot;拆 kernel&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;MakePackedAPI&quot;, &quot;s&quot;: &quot;FFI 入口&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;lg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;FP8/BF16 合法化&quot;, &quot;s&quot;: &quot;低精度类型&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fin&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;host/device 收尾&quot;, &quot;s&quot;: &quot;LowerIntrin 等&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;l&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;v&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;p&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;lg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;lg&quot;, &quot;b&quot;: &quot;fin&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 170.0}}"></div><figcaption>第一排对应 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py#L72">lowering 列表</a>，第二排对应 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py#L153">finalize_tir_pipeline</a>。中间还有 <code>StmtSimplify</code>、<code>NarrowDataType</code>、<code>CommonSubexprElim</code>、<code>LowerThreadAllreduce</code>，图里省略了。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Pass</th>
+<th>作用</th>
+<th>实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TileDispatch</code></td>
+<td>把 tile 操作展开成线程级代码</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/tile/lower.cc#L633">lower.cc</a></td>
+</tr>
+<tr>
+<td><code>LowerTensorLayouts</code></td>
+<td>把 layout 声明变成地址计算</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/lower_tensor_layouts.cc">lower_tensor_layouts.cc</a></td>
+</tr>
+<tr>
+<td><code>FlattenTensor</code></td>
+<td>多维张量压成一维</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/flatten_tensor.cc">flatten_tensor.cc</a></td>
+</tr>
+<tr>
+<td><code>VerifyMemory</code></td>
+<td>检查内存访问是否合法</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/analysis/verify_memory.cc">verify_memory.cc</a></td>
+</tr>
+<tr>
+<td><code>SplitHostDevice</code></td>
+<td>把设备区域拆成 kernel，并生成 launch</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/split_host_device.cc#L273">split_host_device.cc</a></td>
+</tr>
+<tr>
+<td><code>MakePackedAPI</code></td>
+<td>生成 packed 调用约定的入口</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/make_packed_api.cc">make_packed_api.cc</a></td>
+</tr>
+<tr>
+<td><code>LowerTVMBuiltin</code></td>
+<td>host 侧运行时内建函数</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/lower_tvm_builtin.cc">lower_tvm_builtin.cc</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s5-3">调试和替换</h3>
+<ul>
+<li>设置 <code>TVM_TIRX_PRINT_AFTER_DISPATCH_OPS</code> 可以看 dispatch 之后的 IR（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py#L73">代码</a>）。</li>
+<li>pass 配置项 <code>tirx.disable_vectorize</code>、<code>tirx.disable_cse_tir</code> 可以关闭对应优化。</li>
+<li><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py#L219">register_tir_pipeline</a> 注册自定义 pipeline。工厂如果接受 <code>target</code> 关键字，就要自己负责绑定目标。</li>
+</ul>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><p><code>compile</code> 默认 pipeline 依赖 target，不是全局固定的。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/_compile.py#L235">Step 3</a> 走 <code>get_default_tir_pipeline</code>，后端可以提供自己的（如 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/trn/pipeline.py">trn</a>）。另外 target 绑定发生在 lowering 线程 launch 之后，因为分类和 helper 特化要看完整的混合模块。</p>
+</div>
+<h2 id="s6">符号分析</h2>
+<h3 id="s6-1">职责</h3>
+<p>GPU kernel 里到处是形如 <code>(i * 256 + t) / n</code> 的索引。证明它们不越界、化简它们，是编译器的基本功。<code>sym</code> 把这部分独立出来，给 pass 和扩展直接用。</p>
+<h3 id="s6-2">结构</h3>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/analyzer.h#L59">Analyzer</a> 是一个门面，组合多种分析器：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>分析器</th>
+<th>回答什么问题</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ConstIntBoundAnalyzer</code></td>
+<td>这个表达式的常数上下界</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/analyzer.h#L141">analyzer.h</a></td>
+</tr>
+<tr>
+<td><code>ModularSetAnalyzer</code></td>
+<td>模余性质，如一定是 4 的倍数</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/sym/modular_set.cc">modular_set.cc</a></td>
+</tr>
+<tr>
+<td><code>RewriteSimplifier</code></td>
+<td>基于规则的化简</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/sym/rewrite_simplify.cc">rewrite_simplify.cc</a></td>
+</tr>
+<tr>
+<td><code>CanonicalSimplifier</code></td>
+<td>规范形化简</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/analyzer.h#L335">analyzer.h</a></td>
+</tr>
+<tr>
+<td><code>IntSetAnalyzer</code></td>
+<td>取值集合</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/sym/int_set.cc">int_set.cc</a></td>
+</tr>
+<tr>
+<td><code>Z3Prover</code></td>
+<td>交给 SMT 求解器</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/sym/z3_prover.cc">z3_prover.cc</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>证明强度是可选的：<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/analyzer.h#L80">ProofStrength</a> 的默认档是先做默认分析，再用可选的 Z3 兜底。Z3 由构建选项控制，<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/CMakeLists.txt#L50">TVM_TIRX_USE_Z3</a> 默认 <code>AUTO</code>。</p>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/iter_affine_map.h">iter_affine_map.h</a> 处理迭代变量的仿射映射，配合 <code>IndexMap</code> 和 layout 使用。指南见 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/ir_guides/symbolic_integer_analysis.rst">符号整数分析</a>。</p>
+<h2 id="s7">CUDA 后端</h2>
+<p>这是目前最完整的后端。写 kernel 时可以在下面这几层之间自由切换，同一个函数里也能混用。</p>
+
+<figure class="flow"><div class="flow-head">同一个 kernel 里的四层写法<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;同一个 kernel 里的四层写法&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tile 操作&quot;, &quot;s&quot;: &quot;T.cuda.tile.apply&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;l&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;meta 库&quot;, &quot;s&quot;: &quot;lang/pipeline.py&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;后端内建&quot;, &quot;s&quot;: &quot;T.cuda.thread_idx&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;PTX 调用&quot;, &quot;s&quot;: &quot;T.ptx.add.rn.f32&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ir&quot;, &quot;c&quot;: 1.5, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;同一份 TIRx IR&quot;, &quot;s&quot;: &quot;核心语言串起来&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;t:b&quot;, &quot;b&quot;: &quot;ir:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;l:b&quot;, &quot;b&quot;: &quot;ir:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c:b&quot;, &quot;b&quot;: &quot;ir:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p:b&quot;, &quot;b&quot;: &quot;ir:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 175.0}}"></div><figcaption>从左到右越来越接近硬件。核心语言提供循环、分支和张量访问，四层都落到同一份 IR 上（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/index.rst#L69">Authoring Layers</a>）。</figcaption></figure>
+<h3 id="s7-1">三个构造</h3>
+<p>编程模型靠三个构造组织（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/index.rst#L92">Programming Model</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>构造</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Execution scope</td>
+<td>哪些线程参与、在什么层级：单线程、warp、整个 thread block</td>
+</tr>
+<tr>
+<td>Tensor layout</td>
+<td>逻辑张量怎么映射到物理存储</td>
+</tr>
+<tr>
+<td>Tile operation dispatch</td>
+<td>根据操作、scope、layout 和 target 选实现，并生成循环和寻址</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s7-2">表驱动的 PTX</h3>
+<p><code>T.ptx.add.rn.f32(result, a, b)</code> 这种调用直接对应一条 PTX。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/ptx/table.py">table.py</a> 有 1 万多行，是这部分的唯一事实来源：每个 <code>InstructionEntry</code> 记录操作数顺序和修饰符。</p>
+<p>文件头定了几条规则：一个 entry 只对应一种语法形状；跨修饰符约束用纯函数 <code>check</code> 表达；谓词 <code>@p</code> 由框架统一处理；表本身不 import <code>tvm</code>，所以生成器可以独立加载它。它按 PTX ISA 9.4 编写，并用 CUDA 13.4 的 ptxas 核对。</p>
+<p>这是表驱动的好处：新增指令形式只改表，桩代码、覆盖率和 helper 由 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/ptx/gen_stubs.py">gen_stubs</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/ptx/gen_coverage.py">gen_coverage</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/ptx/gen_helpers.py">gen_helpers</a> 生成。完整流程在 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/dev/cuda/ptx_tablegen.rst">PTX TableGen 指南</a>。</p>
+<h3 id="s7-3">Tile 操作</h3>
+<p>TIRx 只提供两个 CUDA tile 操作（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/tile/index.rst#L23">tile 指南</a>）：</p>
+<ul>
+<li><code>T.cuda.tile.apply</code>：重复一条指定的 PTX 指令，比如向量加载或矩阵乘。</li>
+<li><code>T.cuda.tile.ewise</code>：对寄存器元素应用一个标量 TIRx 函数。</li>
+</ul>
+<p>指令变体和同步由你自己选，编译器不替你决定。这和 CuTe DSL 的不同在于，tile 层是可选的，任何部分都能下探到原生指令。</p>
+<p>dispatch 实现在 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/tile/lower.cc#L173">TileDispatcher</a>。它遇到 <code>device_entry</code> 区域时处理入口，然后展开 tile 调用。lowering 回调从 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/tile/dispatch.py#L35">DispatchContext</a> 取信息：target、thread scope、launch 参数、变量范围。回调可以请求私有分配，或在设备和 host 上插入初始化语句（<code>kPrivateAlloc</code>、<code>kDeviceInitStmt</code>、<code>kHostInitStmt</code>）。</p>
+<h3 id="s7-4">同步：写成库</h3>
+<p>barrier 编排不在编译器里，而在 <a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/lang">lang/</a> 这个 Python 库里。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/lang/tile_scheduler.py">tile_scheduler.py</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/lang/alloc_pool.py">alloc_pool.py</a> 也一样。这体现了博客说的分层：会变的东西放在底座之上。</p>
+<h3 id="s7-5">代码生成和运行时</h3>
+
+<figure class="flow"><div class="flow-head">CUDA 代码的去向<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;CUDA 代码的去向&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;ir&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;device IRModule&quot;, &quot;s&quot;: &quot;按 target 分组&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bd&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;codegen.Build&quot;, &quot;s&quot;: &quot;target.build.cuda&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cg&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;CodeGenCUDA&quot;, &quot;s&quot;: &quot;生成 CUDA C++&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cc&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;NVRTC / nvcc&quot;, &quot;s&quot;: &quot;backend_config&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rt&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;cuda_module&quot;, &quot;s&quot;: &quot;加载与 launch&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hs&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;host 模块&quot;, &quot;s&quot;: &quot;import_module&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;exe&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Executable&quot;, &quot;s&quot;: &quot;jit()&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ir&quot;, &quot;b&quot;: &quot;bd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bd&quot;, &quot;b&quot;: &quot;cg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cg&quot;, &quot;b&quot;: &quot;cc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cc&quot;, &quot;b&quot;: &quot;rt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rt&quot;, &quot;b&quot;: &quot;hs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hs&quot;, &quot;b&quot;: &quot;exe&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 172.0}}"></div><figcaption><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/codegen/codegen.cc#L31">codegen.Build</a> 按 <code>target.build.&lt;kind&gt;</code> 分发，CUDA 的注册在 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/cuda/codegen/codegen_cuda.cc#L1978">codegen_cuda.cc</a>。设备模块通过 <code>import_module</code> 挂到 host 模块下（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/_compile.py#L140">_codegen_host_and_device</a>）。</figcaption></figure>
+<p>默认用 NVRTC，也可以切到 nvcc，配置在 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/backend_config.py#L26">BackendConfig</a>。<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/codegen/executable.py#L50">Executable.jit</a> 解释了为什么需要它：返回的模块里可能还有待编译的 CUDA 源码和目标文件，第一次调用才完成编译和链接。</p>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/cuda/codegen/cuda_fallback_module.cc">cuda_fallback_module.cc</a> 这个名字暗示了没有 CUDA 运行时时的兜底。我只看了文件名，没有细读。</p>
+<h3 id="s7-6">其他后端</h3>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/_autoload_backends.py#L27">内置后端列表</a> 有 <code>cuda</code>、<code>metal</code>、<code>rocm</code>、<code>trn</code>、<code>opencl</code>、<code>vulkan</code>、<code>webgpu</code>、<code>hexagon</code>、<code>adreno</code>、<code>rust</code>。CUDA 之外的成熟度差别很大：<a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/hexagon">hexagon</a> 和 <a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/metal">metal</a> 在 C++ 侧只有 codegen 目录。AGENTS 明确提醒：测试被跳过只表示没覆盖，不代表后端可用（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L122">原文</a>）。</p>
+<h2 id="s8">扩展机制</h2>
+<p>这是 TIRx 区别于传统编译器的核心卖点。</p>
+<h3 id="s8-1">四个扩展点</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>想加什么</th>
+<th>怎么加</th>
+<th>需要重编 TIRx 吗</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新算子</td>
+<td>注册 <code>Op</code></td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>新类型</td>
+<td>定义 <code>TypeObj</code> 子类，走反射</td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>新 pass</td>
+<td>写 pass，放进自定义 pipeline</td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>新后端</td>
+<td>声明 <code>tvm_tirx.backends</code> entry point</td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>新 PTX 形式</td>
+<td>改 <code>table.py</code></td>
+<td>只改 Python</td>
+</tr>
+<tr>
+<td>改核心节点</td>
+<td>改 <code>include/tvm/ir/</code></td>
+<td>需要，而且应当避免</td>
+</tr>
+</tbody>
+</table></div>
+<p>外部后端的入口写在 pyproject：<code>[project.entry-points.&quot;tvm_tirx.backends&quot;]</code>，<code>import tvm_tirx</code> 时自动加载，可用 <code>TVM_TIRX_DEVICE_BACKEND_AUTOLOAD=0</code> 关闭（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/_autoload_backends.py#L51">_autoload_backends</a>）。</p>
+<h3 id="s8-2">官方示例</h3>
+<p><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/extension_guides/README.md">扩展示例</a> 实现同一个 <code>my_ext</code>：一个复数类型、几个算子、一个把它们降到标量运算的 pass。它写了两遍：</p>
+
+<figure class="flow"><div class="flow-head">同一个扩展的两种实现<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;同一个扩展的两种实现&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Python 原型&quot;, &quot;s&quot;: &quot;无需构建&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Rust 库&quot;, &quot;s&quot;: &quot;cargo 构建 .so&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;my_ext 包&quot;, &quot;s&quot;: &quot;同名 · 同接口&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;注册&quot;, &quot;s&quot;: &quot;类型 · 算子 · pipeline&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;run_example.py&quot;, &quot;s&quot;: &quot;和 NumPy 对比&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r:r&quot;, &quot;b&quot;: &quot;m:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 235.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 190.0}}"></div><figcaption>两个项目安装同一个分发包，所以示例程序不改一行就能切换。Python 版本见 <a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/extension_guides/python">python/</a>，Rust 版本见 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/extension_guides/rust/src/lib.rs">lib.rs</a>。推荐路径是先用 Python 验证想法，再搬到 Rust。</figcaption></figure>
+<p>Rust 这边，<a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/rust">rust/</a> 是独立 crate，IR 绑定由 <code>tvm-ffi-stubgen</code> 在标记之间生成，所以不要手改那些区段（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L131">说明</a>）。<code>import tvm_tirx</code> 时还会加载 <code>libtvm_tirx_rust</code>，注册静态初始化块里的算子和类型，所以<strong>改了这些要重新跑 editable install</strong>。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 先搭木模，再做铸件</div><ul>
+<li><strong>木模</strong> = Python 版扩展：改起来快，大程序上慢。</li>
+<li><strong>铸件</strong> = Rust 版扩展：要构建，但快且内存安全。</li>
+<li><strong>模具尺寸</strong> = 反射接口：两边一样，所以替换时上下游都不用动。</li>
+</ul>
+<p>agent 先用木模试形状，确定了再铸造。这就是文档推荐的路径，也是博客说的“不把全局语言选择压到局部决策上”。</p>
+</div>
+<h2 id="s9">端到端：add_one 的一生</h2>
+<p>下面用 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/quick_start/add_one_cuda.py">add_one_cuda.py</a> 走一遍。</p>
+<pre><code class="language-python">n = T.dynamic(&quot;n&quot;)
+
+@T.function
+def add_one(A: T.Tensor((n,), T.float32), B: T.Tensor((n,), T.float32)):
+    T.device_entry(launch=T.cuda.LaunchConfig(grid=T.ceildiv(n, 256), block=256))
+    i = T.cuda.block_idx(&quot;x&quot;) * 256 + T.cuda.thread_idx(&quot;x&quot;)
+    if i &lt; n:
+        B[i] = A[i] + 1
+
+add_one_compiled = tvm_tirx.compile(add_one, target=&quot;cuda&quot;)
+</code></pre>
+<p>简化自 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/quick_start/add_one_cuda.py#L25">add_one_cuda.py</a>。</p>
+<p>这里没有 parallel-for。线程索引是自己算的，grid 也是自己写的。这就是“边界画得低”的具体样子。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ add_one 从源码到 GPU</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;@T.function&quot;, &quot;s&quot;: &quot;AST → IR&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;绑定 target&quot;, &quot;s&quot;: &quot;cuda · host llvm&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;lowering&quot;, &quot;s&quot;: &quot;dispatch · 压平&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;SplitHostDevice&quot;, &quot;s&quot;: &quot;kernel + launch&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;MakePackedAPI&quot;, &quot;s&quot;: &quot;FFI 入口&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;codegen&quot;, &quot;s&quot;: &quot;CUDA · LLVM&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Executable&quot;, &quot;s&quot;: &quot;挂接模块&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;首次调用&quot;, &quot;s&quot;: &quot;jit() 编译&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;i&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;launch&quot;, &quot;s&quot;: &quot;grid = ceil(n/256)&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;i&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 150.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a"><div class="step-title">1. 解析</div><p><code>@T.function</code> 改写 AST，得到一个 <code>tirx.Function</code>。<code>T.device_entry</code> 变成一个区域语句。</p>
+</div><div class="step" data-hl="a,b"><div class="step-title">2. 绑定目标</div><p><code>compile</code> 把函数包成 <code>IRModule</code>，确定 target 和 host。<code>target=&quot;cuda&quot;</code> 时架构可以从本机探测，离线构建要写明架构（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/programming_guides/compiling.rst#L50">compiling 指南</a>）。</p>
+</div><div class="step" data-hl="b,c"><div class="step-title">3. lowering</div><p>默认 pipeline 跑 dispatch、layout、flatten、窄化、向量化、化简和 <code>VerifyMemory</code>。</p>
+</div><div class="step" data-hl="c,d"><div class="step-title">4. 拆分</div><p><code>SplitHostDevice</code> 把设备区域抽成 kernel，并在 host 一侧生成 launch。这里用 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform/split_host_device.cc#L318">DeviceInfoCollector</a> 收集设备侧信息。</p>
+</div><div class="step" data-hl="d,e"><div class="step-title">5. ABI</div><p><code>MakePackedAPI</code> 生成 packed 入口，这样 PyTorch 张量能直接传进来（通过 DLPack，由 TVM-FFI 完成）。</p>
+</div><div class="step" data-hl="e,f"><div class="step-title">6. 代码生成</div><p>host 走 LLVM，device 由 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/cuda/codegen/codegen_cuda.h#L43">CodeGenCUDA</a> 生成 CUDA C++。</p>
+</div><div class="step" data-hl="f,g"><div class="step-title">7. 组装</div><p>设备模块 <code>import_module</code> 到 host 模块，包成 <code>Executable</code>。</p>
+</div><div class="step" data-hl="g,h"><div class="step-title">8. 第一次调用</div><p><code>add_one_compiled(a, b)</code> 触发 <code>jit()</code>，完成编译和链接，然后调用 <code>main</code>。</p>
+</div><div class="step" data-hl="h,i"><div class="step-title">9. 运行</div><p>运行时模块 launch kernel，grid 是 <code>ceil(n / 256)</code>，每个 block 256 个线程。<code>export_library</code> 可以把结果存成 <code>.so</code>，用 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/quick_start/load_add_one_cuda.py">load_add_one_cuda.py</a> 重新加载，甚至从 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples/quick_start/load_cpp.cc">C++</a> 加载。</p>
+</div></div></div>
+<p>步骤里“通过 DLPack”一句是我根据 TVM-FFI 的通用机制推断的，没有在这个调用路径上逐行核实。</p>
+<h2 id="s10">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TIRx 主体</td>
+<td>Apache-2.0</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/pyproject.toml#L22">pyproject</a></td>
+</tr>
+<tr>
+<td><code>builtin_fp16</code> 相关代码</td>
+<td>见单独许可证文本</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/licenses/LICENSE.builtin_fp16.txt">licenses/</a></td>
+</tr>
+<tr>
+<td>TVM-FFI 子模块</td>
+<td>由 <code>apache/tvm-ffi</code> 自己声明</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/.gitmodules">.gitmodules</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>Apache-2.0 允许商用、修改和闭源分发，要保留版权声明和 NOTICE，修改过的文件要标明，含专利授权。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>公司内部使用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>允许</td>
+<td>ASF 项目通常要求较大贡献者签 ICLA，请看 ASF 官方说明</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留 LICENSE、NOTICE；不要用 Apache 商标暗示官方</td>
+</tr>
+<tr>
+<td>发安装包</td>
+<td>允许</td>
+<td>带上 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/NOTICE">NOTICE</a> 和第三方许可证</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>Apache-2.0 没有网络条款</td>
+</tr>
+<tr>
+<td>闭源扩展</td>
+<td>允许</td>
+<td>动态扩展在自己的包里即可</td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：LICENSE 文件在 2026-10-15、10-17 随独立化重构进入当前仓库，更早的提交来自 <code>apache/tvm</code>（GitHub API 核实，我没有逐条 diff）。“Apache”和“TVM”是 ASF 商标，fork 命名要注意。ICLA 那一条来自 ASF 的一般做法，不是这个仓库里读到的。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解，真要分发请咨询律师。</p>
+</div>
+<h2 id="s11">贡献与定制</h2>
+<h3 id="s11-1">开发环境</h3>
+<pre><code class="language-bash">git clone --recursive https://github.com/apache/tvm-tirx
+cd tvm-tirx
+uv sync --no-default-groups --group test
+uv run --no-sync pytest -v tests/python/ir/test_type.py
+uv run --no-sync pre-commit run --all-files
+</code></pre>
+<p>命令来自 <a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L64">AGENTS.md</a>。要求 Python 3.10+ 和 C++20 编译器。改了 C++ 要重新跑 editable install，纯 Python 改动立即生效。</p>
+<h3 id="s11-2">项目规则</h3>
+<ul>
+<li>提交信息用标签风格：<code>[FIX]</code>、<code>[REFACTOR]</code>、<code>[FEAT]</code>、<code>[DOCS]</code>、<code>[CI]</code>（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md#L183">规则</a>）。</li>
+<li>C++：<code>.cc</code> / <code>.h</code>，Google 风格，100 列；保留 Apache 许可证头。</li>
+<li>Python 导出、反射的 C++ API 和参考文档要保持一致。</li>
+<li>改 CUDA launch 时，pre-commit 还会检查生成文件（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/launch/generate.py">generate.py</a>）。</li>
+<li>CI 分两部分：GitHub Actions 跑 macOS、Windows 和 lint；Jenkins 跑 ARM、GPU、EXTRA（<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/ci/jenkins/jenkinsfile.groovy">jenkinsfile</a>）。</li>
+</ul>
+<h3 id="s11-3">适合入手的方向</h3>
+<ul>
+<li><strong>PTX 表覆盖</strong>：对照 ISA 补指令形式，范围小，验证清楚。</li>
+<li><strong>文档示例</strong>：<a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs">docs</a> 里的示例都由 <a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/examples">examples</a> 支撑，补充容易验证。</li>
+<li><strong>Rust 绑定</strong>：博客说 Rust 还在进行中。</li>
+<li><strong>其他后端的测试覆盖</strong>。</li>
+</ul>
+<p>需要避开：给核心 IR 加节点。项目的核心取舍就是保持核心小，这类 PR 大概率要长时间讨论（这是我根据设计文档的推断）。</p>
+<h3 id="s11-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">我想在 TIRx 上做点什么<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;我想在 TIRx 上做点什么&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;想加什么能力？&quot;, &quot;s&quot;: &quot;从最轻的开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写 @T.inline 库&quot;, &quot;s&quot;: &quot;同步 · 调度&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;out-of-tree 算子/pass&quot;, &quot;s&quot;: &quot;Python 再到 Rust&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;自定义 pipeline&quot;, &quot;s&quot;: &quot;register_tir_pipeline&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;外部后端&quot;, &quot;s&quot;: &quot;entry point&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>从上到下越来越重。绝大多数需求不需要 fork。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>代价</th>
+<th>依赖</th>
+<th>适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>meta 库</td>
+<td>低</td>
+<td>Python</td>
+<td>复用同步和调度模式</td>
+</tr>
+<tr>
+<td>扩展包</td>
+<td>中</td>
+<td>TVM-FFI 反射</td>
+<td>新类型、算子、分析</td>
+</tr>
+<tr>
+<td>自定义 pipeline</td>
+<td>中</td>
+<td>理解 pass 顺序</td>
+<td>改变优化流程</td>
+</tr>
+<tr>
+<td>外部后端</td>
+<td>高</td>
+<td>codegen 和运行时</td>
+<td>新硬件</td>
+</tr>
+<tr>
+<td>fork 核心</td>
+<td>很高</td>
+<td>长期跟随上游</td>
+<td>尽量避免</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s11-5">仓库里没有的东西</h3>
+<ul>
+<li><strong>agent harness 本身</strong>：TIRx 是底座，不含 agent 循环和 cost model。博客提到的 TIRx Harness 是另一个项目。</li>
+<li><strong>TVM-FFI 实现</strong>：在子模块里。</li>
+<li><strong>GPU kernel 库</strong>：这里没有现成的生产 kernel。</li>
+<li><strong>形式化语义</strong>：博客把验证作为方向，这个仓库里我没有看到 Lean 之类的形式化定义。</li>
+</ul>
+<h2 id="s12">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开发指南</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/AGENTS.md">AGENTS.md</a></td>
+</tr>
+<tr>
+<td>构建</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/CMakeLists.txt">CMakeLists.txt</a>、<a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/pyproject.toml">pyproject.toml</a></td>
+</tr>
+<tr>
+<td>编译入口</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/_compile.py">_compile.py</a></td>
+</tr>
+<tr>
+<td>pipeline</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/tirx/compilation_pipeline.py">compilation_pipeline.py</a></td>
+</tr>
+<tr>
+<td>解析器</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/script/parser">script/parser</a></td>
+</tr>
+<tr>
+<td>pass 实现</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/transform">src/tirx/transform</a></td>
+</tr>
+<tr>
+<td>分析</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/tree/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/analysis">src/tirx/analysis</a></td>
+</tr>
+<tr>
+<td>符号分析</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/include/tvm/sym/analyzer.h">analyzer.h</a></td>
+</tr>
+<tr>
+<td>tile lowering</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/tirx/tile/lower.cc">lower.cc</a></td>
+</tr>
+<tr>
+<td>PTX 表</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/ptx/table.py">table.py</a></td>
+</tr>
+<tr>
+<td>CUDA 代码生成</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/cuda/codegen/codegen_cuda.cc">codegen_cuda.cc</a></td>
+</tr>
+<tr>
+<td>CUDA 运行时</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/src/backend/cuda/runtime/cuda_module.cc">cuda_module.cc</a></td>
+</tr>
+<tr>
+<td>Target 标签</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/python/tvm_tirx/backend/cuda/target_tags.py">target_tags.py</a></td>
+</tr>
+<tr>
+<td>快速开始</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/get_started/quick_start.rst">quick_start.rst</a></td>
+</tr>
+<tr>
+<td>扩展教程</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/docs/advanced/defining_ir_extensions.rst">defining_ir_extensions.rst</a></td>
+</tr>
+<tr>
+<td>Rust</td>
+<td><a class="src" href="https://github.com/apache/tvm-tirx/blob/40d297af8c9b13a5bc890e0e5622a578c21469b2/rust/src/lib.rs">lib.rs</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>外部资料：<a href="https://tvm.apache.org/tirx/">官方文档</a>、<a href="https://tvm.apache.org/2026/11/03/rethinking-abstractions-in-the-agentic-era">设计博客</a>。</p>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>
