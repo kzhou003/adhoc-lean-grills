@@ -1,0 +1,1164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tailscale 客户端源码导读</title>
+<meta name="description" content="Tailscale 把 WireGuard 变成“开箱即用”的私有网络。这份导读讲清 tailscaled 的结构、控制面协议、magicsock 怎么打洞和换路、DERP 为什么存在，以及一个数据包从 TUN 到对端的完整路径。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:Tailscale 客户端源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">Tailscale 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">它解决什么</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">总图</a>
+<a class="nav-l3" href="#s2-4">开源的边界</a>
+<a class="nav-l2" href="#s3">启动与结构</a>
+<a class="nav-l3" href="#s3-1">tailscaled</a>
+<a class="nav-l3" href="#s3-2">tsd.System</a>
+<a class="nav-l3" href="#s3-3">LocalBackend</a>
+<a class="nav-l3" href="#s3-4">状态机</a>
+<a class="nav-l2" href="#s4">控制面</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l3" href="#s4-2">Noise</a>
+<a class="nav-l3" href="#s4-3">两个核心请求</a>
+<a class="nav-l3" href="#s4-4">协调服务器不看你的流量</a>
+<a class="nav-l2" href="#s5">数据面：wgengine</a>
+<a class="nav-l3" href="#s5-1">职责</a>
+<a class="nav-l2" href="#s6">magicsock</a>
+<a class="nav-l3" href="#s6-1">候选地址</a>
+<a class="nav-l3" href="#s6-2">disco：路径探测</a>
+<a class="nav-l3" href="#s6-3">发送时选路</a>
+<a class="nav-l3" href="#s6-4">换网络</a>
+<a class="nav-l2" href="#s7">DERP</a>
+<a class="nav-l3" href="#s7-1">职责</a>
+<a class="nav-l3" href="#s7-2">区域和家</a>
+<a class="nav-l2" href="#s8">周边</a>
+<a class="nav-l2" href="#s9">功能模块化</a>
+<a class="nav-l2" href="#s10">端到端：一个 ping</a>
+<a class="nav-l2" href="#s11">开源许可证</a>
+<a class="nav-l2" href="#s12">贡献与定制</a>
+<a class="nav-l3" href="#s12-1">开发环境</a>
+<a class="nav-l3" href="#s12-2">项目规则</a>
+<a class="nav-l3" href="#s12-3">适合入手的方向</a>
+<a class="nav-l3" href="#s12-4">定制路线</a>
+<a class="nav-l3" href="#s12-5">仓库里没有的东西</a>
+<a class="nav-l2" href="#s13">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · tailscale/tailscale</div><h1>Tailscale 客户端源码导读</h1><p class="lede">Tailscale 把 WireGuard 变成“开箱即用”的私有网络。这份导读讲清 tailscaled 的结构、控制面协议、magicsock 怎么打洞和换路、DERP 为什么存在，以及一个数据包从 TUN 到对端的完整路径。</p><p class="meta">tailscale/tailscale @ e906e69</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给有网络或系统背景、想读懂或定制 Tailscale 客户端的工程师。读完你应该能说清：<code>tailscaled</code> 由哪些子系统组成；节点怎么拿到网络图；两台机器在 NAT 后面怎么连上；一个包怎么走完全程；新功能该放哪。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：问题、目标、限制，开源和闭源的边界。</li>
+<li><strong>启动与结构</strong>：<code>tailscaled</code>、<code>tsd.System</code>、LocalBackend。</li>
+<li><strong>控制面</strong>：登录、Noise、MapResponse。</li>
+<li><strong>数据面</strong>：<code>wgengine</code>、TUN、过滤器。</li>
+<li><strong>magicsock</strong>：打洞、路径选择。</li>
+<li><strong>DERP</strong>：最后的退路。</li>
+<li><strong>周边</strong>：DNS、netstack、tsnet、Tailnet Lock。</li>
+<li><strong>功能模块化</strong>：<code>feature/</code> 的方向。</li>
+<li><strong>端到端</strong>：一个 ping 的旅程。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>tailscale/tailscale</code> @ <code>e906e69</code>（2026-11-05，版本 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/VERSION.txt">1.105.0</a>）。我没有运行过这份代码，内容来自阅读源码和注释。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">它解决什么</h3>
+<p>WireGuard 本身是一个优秀的数据面，但用它组网要自己解决：密钥分发、地址分配、NAT 穿透、访问控制。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>手动 WireGuard 的问题</th>
+<th>Tailscale 的回答</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>密钥</strong></td>
+<td>每对节点手工交换公钥</td>
+<td>协调服务器分发，私钥不离开设备</td>
+</tr>
+<tr>
+<td><strong>地址</strong></td>
+<td>手工规划</td>
+<td>控制面分配 tailnet IP</td>
+</tr>
+<tr>
+<td><strong>NAT</strong></td>
+<td>两端都在 NAT 后就连不上</td>
+<td>magicsock 打洞 + DERP 中继</td>
+</tr>
+<tr>
+<td><strong>身份</strong></td>
+<td>只有公钥</td>
+<td>接入身份提供商</td>
+</tr>
+<tr>
+<td><strong>访问控制</strong></td>
+<td>自己写防火墙</td>
+<td>控制面下发策略，每个节点本地过滤</td>
+</tr>
+</tbody>
+</table></div>
+<p>核心结构是<strong>控制面和数据面分离</strong>：协调服务器只交换元数据，用户流量点对点走，WireGuard 端到端加密。</p>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>让私有网络“装上就能用”</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>任意 NAT 下连通；路由、出口节点、MagicDNS、SSH、Serve/Funnel</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>大 tailnet 的 netmap 很大；小设备内存紧</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>跨 Linux、macOS、Windows、BSD、iOS、Android；中间网络可能屏蔽 UDP</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>用户态 WireGuard、magicsock、DERP、增量 netmap、模块化构建</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>BSD-3-Clause + 专利授权</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">总图</h3>
+
+<figure class="flow"><div class="flow-head">客户端和周边<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;客户端和周边&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;cli&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tailscale CLI&quot;, &quot;s&quot;: &quot;LocalAPI 客户端&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tailscaled&quot;, &quot;s&quot;: &quot;LocalBackend&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ctl&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;协调服务器&quot;, &quot;s&quot;: &quot;闭源 · SaaS&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;idp&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;身份提供商&quot;, &quot;s&quot;: &quot;OIDC 等&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eng&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;wgengine&quot;, &quot;s&quot;: &quot;WireGuard + 路由&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ms&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;magicsock&quot;, &quot;s&quot;: &quot;选路&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;peer&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;对端节点&quot;, &quot;s&quot;: &quot;直连 UDP&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;derp&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;DERP 中继&quot;, &quot;s&quot;: &quot;TCP/HTTPS&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tun&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;TUN / netstack&quot;, &quot;s&quot;: &quot;操作系统&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;cli&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;ctl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ctl&quot;, &quot;b&quot;: &quot;idp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;eng&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tun&quot;, &quot;b&quot;: &quot;eng&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;eng&quot;, &quot;b&quot;: &quot;ms&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ms&quot;, &quot;b&quot;: &quot;peer&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ms:b&quot;, &quot;b&quot;: &quot;derp:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;derp:r&quot;, &quot;b&quot;: &quot;peer:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>深色不在这个仓库。协调服务器闭源；开源替代 Headscale 是第三方项目。DERP 服务器代码是开源的（<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/derper">cmd/derper</a>）。</figcaption></figure>
+<h3 id="s2-4">开源的边界</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/README.md#L9">README</a> 说得很清楚：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tailscaled</code>、<code>tailscale</code> CLI、DERP</td>
+<td>在这个仓库，开源</td>
+</tr>
+<tr>
+<td>iOS、Android 使用的核心逻辑</td>
+<td>在这个仓库</td>
+</tr>
+<tr>
+<td>Android 应用</td>
+<td>单独的开源仓库</td>
+</tr>
+<tr>
+<td>macOS、iOS、Windows 的 GUI 外壳</td>
+<td>闭源</td>
+</tr>
+<tr>
+<td>协调服务器</td>
+<td>闭源</td>
+</tr>
+<tr>
+<td>WireGuard 实现</td>
+<td>用 Tailscale 的 fork：<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/go.mod#L129">wireguard-go</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s3">启动与结构</h2>
+<h3 id="s3-1">tailscaled</h3>
+<p>入口是 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscaled/tailscaled.go#L200">main</a>，主要流程在 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscaled/tailscaled.go#L477">run</a> 和 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscaled/tailscaled.go#L706">getLocalBackend</a>。</p>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscaled/tailscaled.go#L861">tryEngine</a> 决定数据面的形态：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>条件</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>内核 TUN</td>
+<td>默认</td>
+<td>创建 tun、router、OS DNS 配置</td>
+</tr>
+<tr>
+<td><code>userspace-networking</code></td>
+<td><code>--tun=userspace-networking</code></td>
+<td>不需要特权，用 netstack</td>
+</tr>
+<tr>
+<td>TAP</td>
+<td><code>tap:</code> 前缀</td>
+<td>二层设备</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s3-2">tsd.System</h3>
+<p>子系统靠 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tsd/tsd.go">tsd.System</a> 组装。包注释说明目标是统一 tailscaled、Windows 服务、macOS GUI、tsnet、wasm 的初始化，并提醒：这个包依赖几乎所有东西，所以不要把它传给不想依赖全世界的包。</p>
+<h3 id="s3-3">LocalBackend</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go">ipn/ipnlocal/local.go</a> 有 9500 行，是客户端的大脑：连接控制客户端和 wgengine，维护状态机和用户偏好。所有东西都经过它，这也是 <code>feature/</code> 要解决的问题。</p>
+
+<figure class="flow"><div class="flow-head">CLI 怎么控制 daemon<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;CLI 怎么控制 daemon&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tailscale up&quot;, &quot;s&quot;: &quot;cmd/tailscale&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;l&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;client/local&quot;, &quot;s&quot;: &quot;LocalAPI 客户端&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ipnserver&quot;, &quot;s&quot;: &quot;safesocket&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;localapi&quot;, &quot;s&quot;: &quot;HTTP 处理器&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;LocalBackend&quot;, &quot;s&quot;: &quot;状态机&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cc&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;控制客户端&quot;, &quot;s&quot;: &quot;登录 · 轮询&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;wgengine&quot;, &quot;s&quot;: &quot;Reconfig&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;l&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;cc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cc&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 175.0}}"></div><figcaption>本地 API 走 unix socket 或 Windows 命名管道（<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/safesocket">safesocket</a>），入口在 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnserver/server.go#L151">serveHTTP</a>。客户端库见 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/client/local/local.go">local.go</a>。</figcaption></figure>
+<h3 id="s3-4">状态机</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go#L7074">nextStateLocked</a> 和 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go#L4513">enterStateLocked</a> 管理 <code>NoState</code>、<code>InUseOtherUser</code>、<code>NeedsLogin</code>、<code>NeedsMachineAuth</code>、<code>Stopped</code>、<code>Starting</code>、<code>Running</code>。状态定义在 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/backend.go">ipn/backend.go</a>。</p>
+<p>收到新 netmap 时走 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go#L2099">setNetMapLocked</a>，然后 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go#L1252">authReconfig</a> 把它变成 wgengine 的配置。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><ul>
+<li>代码里的 <code>ipn</code> 没有明确的全称，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/doc.go">包注释</a>自己都在开玩笑：“Identified Private Network? IP Network?”</li>
+<li>大量 <code>*View</code> 类型是生成的只读视图（<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/viewer">cmd/viewer</a>），<code>tailcfg_view.go</code> 不要手改。</li>
+</ul>
+</div>
+<h2 id="s4">控制面</h2>
+<h3 id="s4-1">职责</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/direct.go">direct.go</a> 实现和协调服务器的通信，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/auto.go">auto.go</a> 负责自动重试和状态。</p>
+<h3 id="s4-2">Noise</h3>
+<p>控制连接不依赖 TLS 的信任链。<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/ts2021">ts2021</a> 是基于 Noise 的协议，建立在 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlbase">controlbase</a> 之上，拨号在 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlhttp">controlhttp</a>，并且能穿过 HTTP 代理和只开 443 的环境。</p>
+<h3 id="s4-3">两个核心请求</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>请求</th>
+<th>类型</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>登录</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go#L1320">RegisterRequest</a></td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/direct.go#L520">TryLogin</a> 注册节点公钥</td>
+</tr>
+<tr>
+<td>取网络图</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go#L1438">MapRequest</a> / <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go#L2008">MapResponse</a></td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/direct.go#L926">PollNetMap</a> 长轮询</td>
+</tr>
+</tbody>
+</table></div>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go">tailcfg</a> 定义了线上协议。<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go#L49">CapabilityVersion</a> 表示客户端能力，当前是 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go#L202">150</a>。新旧客户端靠它协商，所以改协议时要加版本。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 节点上线</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;生成密钥&quot;, &quot;s&quot;: &quot;机器 + 节点 + disco&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Noise 连接&quot;, &quot;s&quot;: &quot;ts2021&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;RegisterRequest&quot;, &quot;s&quot;: &quot;可能要 auth URL&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;MapRequest&quot;, &quot;s&quot;: &quot;streaming&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;MapResponse&quot;, &quot;s&quot;: &quot;peers · DERP · 策略&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;LocalBackend&quot;, &quot;s&quot;: &quot;setNetMap&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;wgengine&quot;, &quot;s&quot;: &quot;Reconfig&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 165.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a"><div class="step-title">1. 密钥</div><p>节点有几把钥匙：机器密钥、节点（WireGuard）密钥、disco 密钥。私钥不离开设备，由 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/types/key">types/key</a> 表示。</p>
+</div><div class="step" data-hl="a,b"><div class="step-title">2. 连接</div><p>用 Noise 连到协调服务器，用它自己的公钥验证。</p>
+</div><div class="step" data-hl="b,c"><div class="step-title">3. 登录</div><p>未授权时服务器返回 URL，用户在浏览器走身份提供商。</p>
+</div><div class="step" data-hl="c,d"><div class="step-title">4. 轮询</div><p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/direct.go#L940">sendMapRequest</a> 发起 streaming 请求，带上自己的 endpoint 和 Hostinfo。</p>
+</div><div class="step" data-hl="d,e"><div class="step-title">5. 接收</div><p><code>MapResponse</code> 带来 peer 列表、DERP 地图、包过滤规则、DNS 配置。后续是增量更新，由 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/map.go">map.go</a> 合并。</p>
+</div><div class="step" data-hl="e,f"><div class="step-title">6. 进入后端</div><p>netmap 交给 <code>LocalBackend</code>。</p>
+</div><div class="step" data-hl="f,g"><div class="step-title">7. 配置数据面</div><p><code>authReconfig</code> 生成配置调用 <code>Reconfig</code>。</p>
+</div></div></div>
+<h3 id="s4-4">协调服务器不看你的流量</h3>
+
+<div class="callout analogy"><div class="callout-title">类比 · 电话簿，不是电话局</div><ul>
+<li><strong>协调服务器</strong> = 电话簿：记着每个人的公钥、地址、能打给谁。</li>
+<li><strong>MapResponse</strong> = 定期寄来的新版电话簿。</li>
+<li><strong>WireGuard 隧道</strong> = 两个人之间直接通话，电话簿公司不在线路上。</li>
+<li><strong>策略</strong> = 电话簿上写着“不接 B 的电话”，而挂断动作发生在你自己家里（本地过滤器）。</li>
+</ul>
+<p>所以协调服务器短暂宕机时，已有的连接继续工作，受影响的是新变化的分发。这一点是从架构推断的。</p>
+</div>
+<p>它只有公钥、地址、策略，没有私钥。Tailnet Lock 更进一步：节点要有本地信任签名才被接受，防止控制面被攻破时塞入恶意节点，实现在 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tka/tka.go">tka</a>。</p>
+<h2 id="s5">数据面：wgengine</h2>
+<h3 id="s5-1">职责</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/userspace.go#L305">NewUserspaceEngine</a> 把这些东西组装到一起：TUN 包装、WireGuard 设备、magicsock、路由、DNS、过滤器。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tstun.Wrapper</code></td>
+<td>包装 TUN，在这里过滤和拦截</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/tstun/wrap.go">wrap.go</a></td>
+</tr>
+<tr>
+<td>WireGuard</td>
+<td>加解密</td>
+<td><code>wireguard-go</code> fork</td>
+</tr>
+<tr>
+<td><code>magicsock.Conn</code></td>
+<td>WireGuard 的 <code>conn.Bind</code>，负责选路</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L158">Conn</a></td>
+</tr>
+<tr>
+<td><code>router</code></td>
+<td>配置系统路由</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/router/router.go">router.go</a></td>
+</tr>
+<tr>
+<td><code>dns.Manager</code></td>
+<td>配置系统 DNS</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/dns/manager.go">manager.go</a></td>
+</tr>
+<tr>
+<td><code>filter.Filter</code></td>
+<td>有状态包过滤</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/filter/filter.go#L32">Filter</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/userspace.go#L160">Reconfig</a> 的特点是比较差异：<code>engineChanged</code>、<code>routerChanged</code>、<code>dnsChanged</code>、<code>listenPortChanged</code>，没变化就提前返回。网络图频繁变化时这很重要。</p>
+<p>关键巧思在 WireGuard 和 magicsock 的接口：<strong>WireGuard 以为自己在往一个地址发包，实际地址是公钥</strong>。magicsock 实现 <code>conn.Bind</code>，决定这个包这次走哪条路。WireGuard 完全不知道换路发生过，会话也不用重建。</p>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/filter/filter.go">过滤器</a>在每个节点本地执行控制面下发的规则，<strong>入站方向</strong>决定是否接受。</p>
+<h2 id="s6">magicsock</h2>
+<p>这是项目最有特色的部分。包注释只有一句：“一个能在使用中改变通信路径的 socket，主动寻找最好的通信方式”（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L4">magicsock.go</a>）。</p>
+<h3 id="s6-1">候选地址</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L952">determineEndpoints</a> 收集自己的候选：本地接口地址、STUN 发现的公网地址、端口映射（UPnP、NAT-PMP、PCP，<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/portmapper">portmapper</a>）。<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/netcheck/netcheck.go">netcheck</a> 探测网络情况，包括 UDP 是否可用、NAT 类型、各 DERP 区延迟。</p>
+<p>这些候选通过 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L307">updateEndpoints</a> 报给控制面，再分发给 peer。</p>
+<h3 id="s6-2">disco：路径探测</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/disco/disco.go">disco</a> 是独立于 WireGuard 的小协议：头部是 magic <code>TS💬</code>、发送方 disco 公钥、nonce，内容用 nacl box 加密。消息类型有 Ping、Pong、CallMeMaybe。</p>
+<p>为什么不直接用 WireGuard 探测？disco 用单独的密钥，可以在不建立 WireGuard 会话时探路。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 两台 NAT 后的机器打洞</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;节点 A&quot;, &quot;s&quot;: &quot;有包要发&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;DERP&quot;, &quot;s&quot;: &quot;已有的连接&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;节点 B&quot;, &quot;s&quot;: &quot;公网候选已知&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;UDP 打洞&quot;, &quot;s&quot;: &quot;同时互发 Ping&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;k&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;bestAddr&quot;, &quot;s&quot;: &quot;最优直连路径&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a:b&quot;, &quot;b&quot;: &quot;p:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b:b&quot;, &quot;b&quot;: &quot;p:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;k&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 210.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 170.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a,d,b"><div class="step-title">1. 先走中继</div><p>A 的第一个包可以经 DERP 发给 B，所以连接立即可用。</p>
+</div><div class="step" data-hl="a,p"><div class="step-title">2. 探测</div><p>同时，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go#L938">sendDiscoPingsLocked</a> 向 B 的所有候选地址发 disco Ping。A 自己的 NAT 因此打开映射。</p>
+</div><div class="step" data-hl="d,b"><div class="step-title">3. CallMeMaybe</div><p>A 经 DERP 发 CallMeMaybe 给 B，内容是 A 的候选地址。B 收到后反过来向 A 发 Ping，打开自己的 NAT。这是打洞的关键：<strong>两边要差不多同时发</strong>。</p>
+</div><div class="step" data-hl="p,b"><div class="step-title">4. 收到 Pong</div><p>一条路通了，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go#L132">handlePongConnLocked</a> 记录延迟。</p>
+</div><div class="step" data-hl="p,k"><div class="step-title">5. 换路</div><p>最优路径写入 <code>bestAddr</code>。之后的包直接走 UDP，WireGuard 无感知。</p>
+</div></div></div>
+<h3 id="s6-3">发送时选路</h3>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go#L626">addrForSendLocked</a> 很短，逻辑却是全部精华：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bestAddr</code> 有效且未过期</td>
+<td>只走 UDP</td>
+</tr>
+<tr>
+<td>wireguard-only 节点</td>
+<td>只有 UDP，没有 DERP</td>
+</tr>
+<tr>
+<td>过期或没有</td>
+<td>UDP 和 DERP <strong>同时发</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go#L644">send</a> 在没有直连或信任过期时触发新一轮探测。过期时双发，保证切换期间不断流。<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go#L317">heartbeat</a> 在活跃时周期性刷新路径。</p>
+<p>最后还有一招：如果不知道对方的 UDP 地址和 DERP home，就用对方上次联系我们的 DERP 区（<code>fallbackDERPRegionForPeer</code>）。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 同时打电话和发快递</div><ul>
+<li><strong>WireGuard</strong> = 寄件人，只写收件人姓名（公钥），不管地址。</li>
+<li><strong>magicsock</strong> = 物流调度，决定走哪条路。</li>
+<li><strong>DERP</strong> = 公司总部的中转站：慢但一定到。</li>
+<li><strong>disco Ping</strong> = 派人试几条小路通不通。</li>
+<li><strong>CallMeMaybe</strong> = 经总部捎个话：“我也在试，咱俩同时走，门就开了。”</li>
+<li><strong>路径过期时双发</strong> = 同时走小路和中转站，避免换路时丢件。</li>
+</ul>
+<p>寄件人从头到尾不知道包裹换过路。</p>
+</div>
+<h3 id="s6-4">换网络</h3>
+<p>切换 Wi-Fi 时，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/userspace.go#L590">linkChange</a> 响应 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/netmon">netmon</a> 的事件，<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L892">ReSTUN</a> 重新探测。WireGuard 会话以公钥为身份，不绑定 IP，所以 TCP 连接能活过网络切换。</p>
+<p>较新的 peer relay 用另一个节点做 UDP 中继，介于直连和 DERP 之间，见 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/relaymanager.go">relaymanager.go</a> 和 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/feature/relayserver">feature/relayserver</a>。</p>
+<h2 id="s7">DERP</h2>
+<h3 id="s7-1">职责</h3>
+<p>DERP 按 <strong>curve25519 公钥寻址</strong>，不是 IP。它中继两种包：disco 消息，以及 NAT 穿透失败时的 WireGuard 包（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/derp/README.md">derp/README.md</a>）。它是最后的退路，也是打洞的旁路信令。</p>
+<p>DERP 走 TCP/HTTPS，所以 UDP 被屏蔽的网络里也能工作。</p>
+<p>它看不到明文：中继的 WireGuard 包是端到端加密的。</p>
+<h3 id="s7-2">区域和家</h3>
+
+<figure class="flow"><div class="flow-head">DERP 区域<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;DERP 区域&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;节点 A&quot;, &quot;s&quot;: &quot;home: 区域 1&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r1&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;区域 1 节点 a&quot;, &quot;s&quot;: &quot;mesh&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r2&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;区域 1 节点 b&quot;, &quot;s&quot;: &quot;mesh&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;o&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;区域 2&quot;, &quot;s&quot;: &quot;按需连接&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;节点 B&quot;, &quot;s&quot;: &quot;home: 区域 2&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;r1&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r1&quot;, &quot;b&quot;: &quot;r2&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;a:b&quot;, &quot;b&quot;: &quot;o:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;o&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>每个节点选延迟最低的区作为 home，由协调服务器分享给所有 peer。发给 B 就连到 B 的 home。只有 home 连接要长期保持（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/derp/README.md#L19">DERP Map</a>）。</figcaption></figure>
+<p>设计取舍来自 README：</p>
+<ul>
+<li>客户端自己按延迟选 home，所以不需要云负载均衡或 anycast，也不需要区域间路由。</li>
+<li>同区节点 mesh，包只转发一跳。<strong>区域之间没有路由</strong>。</li>
+<li>每区至少三个节点，不是为了选举，而是防止级联故障：两台各 51% 负载时，挂一台另一台也撑不住。</li>
+</ul>
+<p>服务器在 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/derper">cmd/derper</a> 和 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/derp/derpserver/derpserver.go#L131">derpserver</a>，还有 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/derp/xdp">xdp</a> 目录下的 XDP 实现。<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/stund">stund</a> 提供 STUN。</p>
+<h2 id="s8">周边</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>功能</th>
+<th>作用</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MagicDNS</td>
+<td>tailnet 内域名，配置系统 DNS</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/dns">net/dns</a></td>
+</tr>
+<tr>
+<td>netstack</td>
+<td>用户态 TCP/IP，基于 gVisor</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/netstack">wgengine/netstack</a></td>
+</tr>
+<tr>
+<td>tsnet</td>
+<td>把 Tailscale 节点嵌进 Go 程序</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tsnet/tsnet.go">tsnet</a></td>
+</tr>
+<tr>
+<td>Tailscale SSH</td>
+<td>用 tailnet 身份认证 SSH</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/ssh">ssh</a>、<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/feature/ssh">feature/ssh</a></td>
+</tr>
+<tr>
+<td>Tailnet Lock</td>
+<td>本地节点签名</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/tka">tka</a></td>
+</tr>
+<tr>
+<td>K8s operator</td>
+<td>集群集成</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/k8s-operator">k8s-operator</a>、<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/k8s-operator">cmd</a></td>
+</tr>
+<tr>
+<td>Taildrive</td>
+<td>文件共享</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/drive">drive</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>DNS 的难点是平台差异：<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/dns">net/dns</a> 有 resolvconf、systemd-resolved、NetworkManager、Windows NRPT 等一堆实现，这里的文件大多是在和操作系统打交道。</p>
+<p><strong>tsnet</strong> 是最值得定制者关注的：一个 Go 程序不需要 TUN，不需要 daemon，自己就是 tailnet 上的节点。</p>
+
+<figure class="flow"><div class="flow-head">三种接入方式<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;三种接入方式&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tailscaled + TUN&quot;, &quot;s&quot;: &quot;全机接入&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;userspace-networking&quot;, &quot;s&quot;: &quot;无特权 · SOCKS&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;tsnet&quot;, &quot;s&quot;: &quot;嵌入单个程序&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;n&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;同一套核心&quot;, &quot;s&quot;: &quot;LocalBackend · magicsock&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a:r&quot;, &quot;b&quot;: &quot;n:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;n&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c:r&quot;, &quot;b&quot;: &quot;n:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 195.0}}"></div><figcaption>三种方式共用核心逻辑，差别在包从哪进出。</figcaption></figure>
+<h2 id="s9">功能模块化</h2>
+<p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/feature/README.md">feature/README.md</a> 讲了项目当前的重要方向：</p>
+<p>客户端变大了，不是每个用户都要全部功能。一台几美元芯片的 IoT 设备不需要 Taildrop、WebDAV、ACME 或 SSH。所以<strong>新功能优先放 <code>feature/&lt;name&gt;</code></strong>，通过 hook 接入，不要塞进 <code>LocalBackend</code>。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>feature/</code> 包</td>
+<td>从自己的 <code>init</code> 注册</td>
+</tr>
+<tr>
+<td><code>ts_omit_*</code> 构建标签</td>
+<td>去掉功能</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/feature/buildfeatures">buildfeatures</a></td>
+<td>编译期常量，如 <code>HasDebug</code>、<code>HasNetstack</code></td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/featuretags">cmd/featuretags</a></td>
+<td>查看功能依赖</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/omitsize">cmd/omitsize</a></td>
+<td>算每个功能的体积</td>
+</tr>
+</tbody>
+</table></div>
+<p>所以 <code>tailscaled.go</code> 里能看到 <code>hookNewNetstack.GetOk()</code> 这样的钩子。README 也承认大部分代码处于<strong>半迁移状态</strong>。贡献时要先读这份文档。</p>
+<h2 id="s10">端到端：一个 ping</h2>
+<p>机器 A 上执行 <code>ping 100.64.0.2</code>，目标是 B。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一个 ICMP 包从 A 到 B</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;A 的内核&quot;, &quot;s&quot;: &quot;路由到 tailscale0&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;tstun.Wrapper&quot;, &quot;s&quot;: &quot;读 TUN&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;出站过滤&quot;, &quot;s&quot;: &quot;本地处理&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;w&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;WireGuard&quot;, &quot;s&quot;: &quot;按目的 IP 找 peer&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;magicsock&quot;, &quot;s&quot;: &quot;endpoint.send&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;n&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;网络&quot;, &quot;s&quot;: &quot;UDP 或 DERP&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;receiveIP&quot;, &quot;s&quot;: &quot;B 的 magicsock&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dw&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;WireGuard&quot;, &quot;s&quot;: &quot;解密&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fb&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;入站过滤&quot;, &quot;s&quot;: &quot;策略规则&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;B 的内核&quot;, &quot;s&quot;: &quot;ICMP 回复&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;f&quot;, &quot;b&quot;: &quot;w&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;w&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;n&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;n&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;dw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;dw&quot;, &quot;b&quot;: &quot;fb&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fb&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a,t"><div class="step-title">1. 进入 TUN</div><p>系统路由把 <code>100.64.0.0/10</code> 指向 <code>tailscale0</code>，路由由 <code>router</code> 配置。<code>tstun.Wrapper</code> 读到这个包。</p>
+</div><div class="step" data-hl="t,f"><div class="step-title">2. 出站处理</div><p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/userspace.go#L471">handleLocalPackets</a> 等钩子可以在这里处理或拦截。</p>
+</div><div class="step" data-hl="f,w"><div class="step-title">3. 加密</div><p>WireGuard 按目的 IP 查 peer，加密。如果还没握手就先握手。</p>
+</div><div class="step" data-hl="w,m"><div class="step-title">4. 选路</div><p><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L1511">Conn.Send</a> 调用 <code>endpoint.send</code>，<code>addrForSendLocked</code> 决定路径。</p>
+</div><div class="step" data-hl="m,n"><div class="step-title">5. 传输</div><p>UDP 直发，或经 DERP，或同时。</p>
+</div><div class="step" data-hl="n,r"><div class="step-title">6. 接收</div><p>B 的 <a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go#L1808">receiveIP</a> 区分 disco 和 WireGuard 包。</p>
+</div><div class="step" data-hl="r,dw"><div class="step-title">7. 解密</div><p>WireGuard 解密并验证公钥和 AllowedIPs。</p>
+</div><div class="step" data-hl="dw,fb"><div class="step-title">8. 入站过滤</div><p>过滤器用控制面下发的规则判断，不允许就丢弃。</p>
+</div><div class="step" data-hl="fb,b"><div class="step-title">9. 投递</div><p>写回 TUN，B 的内核回 ICMP，反向走一遍。</p>
+</div></div></div>
+<h2 id="s11">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>仓库代码</td>
+<td>BSD-3-Clause，Copyright 2020 Tailscale Inc</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/LICENSE">LICENSE</a></td>
+</tr>
+<tr>
+<td>专利</td>
+<td>额外的专利授权，类似 Go</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/PATENTS">PATENTS</a></td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>各自许可证</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/licenses">licenses/</a></td>
+</tr>
+<tr>
+<td><code>tempfork/</code></td>
+<td>临时 fork 的第三方代码，各有许可</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/tempfork">tempfork</a></td>
+</tr>
+<tr>
+<td>WireGuard 商标</td>
+<td>Jason A. Donenfeld 的注册商标</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/README.md#L85">README</a></td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>提 PR</td>
+<td>允许</td>
+<td><strong>需要 DCO</strong>：<code>Signed-off-by</code></td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留版权；不要用 Tailscale 名义</td>
+</tr>
+<tr>
+<td>发安装包</td>
+<td>允许</td>
+<td>用 <code>build_dist.sh</code> 带上版本信息</td>
+</tr>
+<tr>
+<td>闭源嵌入</td>
+<td>允许</td>
+<td>保留声明，注意专利条款的终止条件</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>BSD 无网络条款，但协调服务器闭源，要用第三方实现或自己写</td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：GitHub API 显示 <code>LICENSE</code> 自 2020-02-05 进入这个仓库，之后三次修改的标题都是格式或版权声明调整，我没有逐条 diff。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解。商标使用请看 Tailscale 自己的政策。</p>
+</div>
+<h2 id="s12">贡献与定制</h2>
+<h3 id="s12-1">开发环境</h3>
+<pre><code class="language-bash">git clone https://github.com/tailscale/tailscale
+cd tailscale
+go install tailscale.com/cmd/tailscale{,d}
+go test ./wgengine/magicsock/
+make check
+</code></pre>
+<p>要求最新的 Go（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/README.md#L40">README</a>）。</p>
+<h3 id="s12-2">项目规则</h3>
+<ul>
+<li>提交要有 DCO <code>Signed-off-by</code>，并引用 bug。</li>
+<li>提交信息用 Go 和 Linux 风格：<code>wgengine/magicsock: fix foo</code>，<strong>不用</strong> Conventional Commits（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/docs/commit-messages.md">commit-messages.md</a>）。</li>
+<li>新功能优先放 <code>feature/</code>。</li>
+<li>协议变更要考虑 <code>CapabilityVersion</code>。</li>
+<li>生成文件用 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/viewer">viewer</a>、<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/cloner">cloner</a>。</li>
+<li>改依赖关系要过 <code>depaware</code> 检查（<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/Makefile#L73">make check</a>）。</li>
+</ul>
+<h3 id="s12-3">适合入手的方向</h3>
+<ul>
+<li>平台相关的 bug：DNS、路由。</li>
+<li>把 <code>LocalBackend</code> 里的功能拆到 <code>feature/</code>。</li>
+<li>测试：<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/tstest">tstest</a> 里有虚拟网络 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/tstest/natlab">natlab</a>，可以模拟各种 NAT。</li>
+<li>文档和诊断。</li>
+</ul>
+<h3 id="s12-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">想基于 Tailscale 做点什么<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;想基于 Tailscale 做点什么&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.5, &quot;t&quot;: &quot;要什么？&quot;, &quot;s&quot;: &quot;从最轻的开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;CLI + 策略&quot;, &quot;s&quot;: &quot;用 SaaS&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;LocalAPI&quot;, &quot;s&quot;: &quot;控制本地 daemon&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;tsnet&quot;, &quot;s&quot;: &quot;程序就是节点&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;自建 DERP&quot;, &quot;s&quot;: &quot;cmd/derper&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 3.0, &quot;t&quot;: &quot;第三方控制面&quot;, &quot;s&quot;: &quot;Headscale 等&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;b:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;d:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>协调服务器闭源，自建完整网络要用第三方实现。仓库里的 <a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/testcontrol">testcontrol</a> 只用于测试，不是生产控制面。</figcaption></figure>
+<h3 id="s12-5">仓库里没有的东西</h3>
+<ul>
+<li><strong>协调服务器</strong>：闭源 SaaS。协议只能从 <code>tailcfg</code> 和客户端代码推断。</li>
+<li><strong>macOS、iOS、Windows GUI</strong>：闭源外壳。</li>
+<li><strong>ACL 策略求值</strong>：策略编译在服务器，客户端只收到编译后的 <code>FilterRule</code>。这一点是从客户端只收到 <code>FilterRule</code> 推断的。</li>
+<li><strong>Go fork</strong>：发布版用 <code>tailscale/go</code>，但不是必需。</li>
+</ul>
+<h2 id="s13">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>daemon 入口</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscaled/tailscaled.go">tailscaled.go</a></td>
+</tr>
+<tr>
+<td>CLI</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/tailscale">cmd/tailscale</a></td>
+</tr>
+<tr>
+<td>大脑</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/ipnlocal/local.go">local.go</a></td>
+</tr>
+<tr>
+<td>本地 API</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/ipn/localapi">localapi</a>、<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/client/local/local.go">client/local</a></td>
+</tr>
+<tr>
+<td>控制协议</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tailcfg/tailcfg.go">tailcfg.go</a>、<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/control/controlclient/direct.go">direct.go</a></td>
+</tr>
+<tr>
+<td>引擎</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/userspace.go">userspace.go</a></td>
+</tr>
+<tr>
+<td>路径</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/magicsock.go">magicsock.go</a>、<a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/magicsock/endpoint.go">endpoint.go</a></td>
+</tr>
+<tr>
+<td>disco</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/disco/disco.go">disco.go</a></td>
+</tr>
+<tr>
+<td>DERP</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/derp/README.md">README</a>、<a class="src" href="https://github.com/tailscale/tailscale/tree/e906e6934d25da71c4bbf3c30af679fb2f72b423/cmd/derper">cmd/derper</a></td>
+</tr>
+<tr>
+<td>TUN</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/tstun/wrap.go">wrap.go</a></td>
+</tr>
+<tr>
+<td>过滤</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/wgengine/filter/filter.go">filter.go</a></td>
+</tr>
+<tr>
+<td>网络探测</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/net/netcheck/netcheck.go">netcheck.go</a></td>
+</tr>
+<tr>
+<td>功能模块</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/feature/README.md">feature/README.md</a></td>
+</tr>
+<tr>
+<td>嵌入</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tsnet/tsnet.go">tsnet.go</a></td>
+</tr>
+<tr>
+<td>Tailnet Lock</td>
+<td><a class="src" href="https://github.com/tailscale/tailscale/blob/e906e6934d25da71c4bbf3c30af679fb2f72b423/tka/tka.go">tka.go</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

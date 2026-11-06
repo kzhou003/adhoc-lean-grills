@@ -1,0 +1,12 @@
+{
+  "title": "Tailscale 客户端源码导读",
+  "kicker": "Source-level guide · tailscale/tailscale",
+  "lede": "Tailscale 把 WireGuard 变成“开箱即用”的私有网络。这份导读讲清 tailscaled 的结构、控制面协议、magicsock 怎么打洞和换路、DERP 为什么存在，以及一个数据包从 TUN 到对端的完整路径。",
+  "brand": "Tailscale 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"ts": {"repo": "tailscale/tailscale", "sha": "e906e6934d25da71c4bbf3c30af679fb2f72b423", "local": "~/development/tailscale-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}
