@@ -1,0 +1,12 @@
+{
+  "title": "OpenSandbox 源码导读",
+  "kicker": "Source-level guide · opensandbox-group/OpenSandbox",
+  "lede": "OpenSandbox 让 AI 应用在自己的基础设施上运行隔离沙箱。这份导读讲清控制面、数据面和网络面怎么分工，一次 Sandbox.create 和 commands.run 怎么走完，以及 Fast Sandbox、出站控制和凭据保险库的设计。",
+  "brand": "OpenSandbox 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {"os": {"repo": "opensandbox-group/OpenSandbox", "sha": "0da12cf7ca9c07a178992a3665bf8833fb1984bd", "local": "~/development/opensandbox-report/src"}},
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}

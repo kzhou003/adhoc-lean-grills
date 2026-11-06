@@ -1,0 +1,1174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSandbox 源码导读</title>
+<meta name="description" content="OpenSandbox 让 AI 应用在自己的基础设施上运行隔离沙箱。这份导读讲清控制面、数据面和网络面怎么分工，一次 Sandbox.create 和 commands.run 怎么走完，以及 Fast Sandbox、出站控制和凭据保险库的设计。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:OpenSandbox 源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">OpenSandbox 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">它解决什么</a>
+<a class="nav-l3" href="#s2-2">要求 / 目标 / 限制</a>
+<a class="nav-l3" href="#s2-3">六个面</a>
+<a class="nav-l2" href="#s3">协议：specs 是公共合约</a>
+<a class="nav-l2" href="#s4">控制面：生命周期服务器</a>
+<a class="nav-l3" href="#s4-1">职责</a>
+<a class="nav-l3" href="#s4-2">两条分层规则</a>
+<a class="nav-l3" href="#s4-3">生命周期是异步的</a>
+<a class="nav-l3" href="#s4-4">启动时就拒绝不安全的配置</a>
+<a class="nav-l3" href="#s4-5">服务接口</a>
+<a class="nav-l2" href="#s5">运行时后端</a>
+<a class="nav-l3" href="#s5-1">Docker 怎么把 execd 放进任意镜像</a>
+<a class="nav-l3" href="#s5-2">隔离档位</a>
+<a class="nav-l3" href="#s5-3">Fast Sandbox</a>
+<a class="nav-l2" href="#s6">数据面：execd</a>
+<a class="nav-l3" href="#s6-1">职责</a>
+<a class="nav-l2" href="#s7">网络面</a>
+<a class="nav-l3" href="#s7-1">入站</a>
+<a class="nav-l3" href="#s7-2">出站</a>
+<a class="nav-l3" href="#s7-3">凭据保险库</a>
+<a class="nav-l2" href="#s8">Kubernetes 控制器</a>
+<a class="nav-l2" href="#s9">SDK 与工具</a>
+<a class="nav-l2" href="#s10">端到端：从 create 到一条命令</a>
+<a class="nav-l2" href="#s11">开源许可证</a>
+<a class="nav-l2" href="#s12">贡献与定制</a>
+<a class="nav-l3" href="#s12-1">开发环境</a>
+<a class="nav-l3" href="#s12-2">项目规则</a>
+<a class="nav-l3" href="#s12-3">适合入手的方向</a>
+<a class="nav-l3" href="#s12-4">定制路线</a>
+<a class="nav-l3" href="#s12-5">仓库里没有的东西</a>
+<a class="nav-l2" href="#s13">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · opensandbox-group/OpenSandbox</div><h1>OpenSandbox 源码导读</h1><p class="lede">OpenSandbox 让 AI 应用在自己的基础设施上运行隔离沙箱。这份导读讲清控制面、数据面和网络面怎么分工，一次 Sandbox.create 和 commands.run 怎么走完，以及 Fast Sandbox、出站控制和凭据保险库的设计。</p><p class="meta">opensandbox-group/OpenSandbox @ 0da12cf</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给想部署、贡献或定制 OpenSandbox 的工程师。读完你应该能说清：控制面和数据面为什么分开；一次创建和一次命令执行分别经过哪些组件；Docker、Kubernetes、Fast Sandbox 三种后端有什么差别；新运行时、新 SDK 能力该改哪里。</p>
+<p>全文顺序：</p>
+<ol>
+<li><strong>全景</strong>：问题、目标、限制，六个面。</li>
+<li><strong>协议</strong>：<code>specs/</code> 是公共合约。</li>
+<li><strong>控制面</strong>：生命周期服务器。</li>
+<li><strong>运行时后端</strong>：Docker、Kubernetes、Fast Sandbox。</li>
+<li><strong>数据面</strong>：execd。</li>
+<li><strong>网络面</strong>：ingress、egress、凭据保险库。</li>
+<li><strong>Kubernetes 控制器</strong>：CRD 和资源池。</li>
+<li><strong>SDK 与工具</strong>。</li>
+<li><strong>端到端</strong>：从 <code>Sandbox.create</code> 到一条命令。</li>
+<li><strong>许可证</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>opensandbox-group/OpenSandbox</code> @ <code>0da12cf</code>（2026-11-06）。我没有部署或运行过，内容来自阅读代码和仓库文档。性能数字都来自项目自己的文档，我没有复测。</p>
+</div>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">它解决什么</h3>
+<p>AI 应用要执行模型生成的代码、跑命令、操作浏览器。这些事不能在应用进程里做。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>解决办法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>隔离</strong></td>
+<td>模型生成的代码不可信</td>
+<td>容器、gVisor/Kata/Firecracker，加网络控制</td>
+</tr>
+<tr>
+<td><strong>环境可移植</strong></td>
+<td>本地用 Docker，生产用 K8s，代码不想改两遍</td>
+<td>统一的生命周期 API</td>
+</tr>
+<tr>
+<td><strong>启动延迟</strong></td>
+<td>每轮 agent 都等容器启动太慢</td>
+<td>资源池、Fast Sandbox 模板</td>
+</tr>
+<tr>
+<td><strong>凭据泄露</strong></td>
+<td>agent 要调外部 API，但不能拿到密钥</td>
+<td>出站代理注入凭据</td>
+</tr>
+<tr>
+<td><strong>评估规模</strong></td>
+<td>RL 和 agent 评估要大批量沙箱</td>
+<td>批量创建、资源池</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-2">要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>通用沙箱平台，运行在用户自己的基础设施上</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>生命周期、命令、文件、代码、PTY、端点、快照、暂停恢复、出站策略</td>
+</tr>
+<tr>
+<td><strong>规模压力</strong></td>
+<td>README 给出 Firecracker 创建 64ms P50（串行）、125.4ms P99（10 并发）（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/README.md#L36">Features</a>）</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>多语言 SDK 要一致；Docker 和 K8s 能力不同；Fast Sandbox 平台在别的仓库</td>
+</tr>
+<tr>
+<td><strong>关键手段</strong></td>
+<td>OpenAPI 合约；统一 <code>SandboxService</code>；数据面直连；fail-closed 出站</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>Apache-2.0，LF Projects 技术章程，AAIF 项目</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-3">六个面</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/index.md#L24">架构总览</a> 把项目分成六个面，这是读仓库最好的地图：</p>
+
+<figure class="flow"><div class="flow-head">控制面和数据面分开走<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;控制面和数据面分开走&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;sdk&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;SDK · CLI · MCP&quot;, &quot;s&quot;: &quot;五种语言&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;srv&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;生命周期服务器&quot;, &quot;s&quot;: &quot;FastAPI&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rt&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;运行时后端&quot;, &quot;s&quot;: &quot;Docker · K8s&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;box&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;沙箱&quot;, &quot;s&quot;: &quot;用户负载&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ex&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;execd&quot;, &quot;s&quot;: &quot;沙箱内守护进程&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ing&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ingress&quot;, &quot;s&quot;: &quot;K8s 入口网关&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eg&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;egress&quot;, &quot;s&quot;: &quot;出站 sidecar&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;net&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;外部服务&quot;, &quot;s&quot;: &quot;API · 模型&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;spec&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;specs/&quot;, &quot;s&quot;: &quot;OpenAPI 合约&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;sdk:t&quot;, &quot;b&quot;: &quot;srv:l&quot;, &quot;t&quot;: &quot;生命周期&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;srv&quot;, &quot;b&quot;: &quot;rt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rt:b&quot;, &quot;b&quot;: &quot;ex:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;sdk&quot;, &quot;b&quot;: &quot;ing&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ing&quot;, &quot;b&quot;: &quot;ex&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ex&quot;, &quot;b&quot;: &quot;box&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;box:b&quot;, &quot;b&quot;: &quot;eg:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;eg&quot;, &quot;b&quot;: &quot;net&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;spec:t&quot;, &quot;b&quot;: &quot;sdk:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 165.0}}"></div><figcaption>三条路径：生命周期走服务器；执行和服务访问<strong>绕过服务器</strong>直连沙箱；出站经 egress 过滤。这个分离来自 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/index.md#L16">架构文档</a>。Docker 模式没有 ingress，客户端直连映射端口。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>面</th>
+<th>目录</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>客户端</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks">sdks/</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/cli">cli/</a></td>
+</tr>
+<tr>
+<td>协议</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs">specs/</a></td>
+</tr>
+<tr>
+<td>控制面</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server">server/</a></td>
+</tr>
+<tr>
+<td>运行时</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services">services/</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes">kubernetes/</a></td>
+</tr>
+<tr>
+<td>数据面</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/execd">components/execd</a></td>
+</tr>
+<tr>
+<td>网络与安全</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/ingress">ingress</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/egress">egress</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s3">协议：specs 是公共合约</h2>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs">specs/</a> 下有四份 OpenAPI：<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs/sandbox-lifecycle.yml">生命周期</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs/execd-api.yaml">execd</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs/egress-api.yaml">egress</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs/diagnostic-api.yml">诊断</a>。</p>
+<p>根 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/AGENTS.md#L45">AGENTS.md</a> 的规则是：把 <code>specs/*</code> 当公共合约；用户可见的行为变化时，spec、实现、SDK、文档、示例要一起对齐，<strong>先改文档</strong>。扩展优先做向后兼容的增量。</p>
+<p>这种设计的好处是可替换：任何实现了 execd API 的镜像都能配合 SDK 工作。<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/data-plane/execd.md#L8">execd 文档</a> 称它是“参考”守护进程。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 插座标准和电器</div><ul>
+<li><strong>插座标准</strong> = <code>specs/</code> 的 OpenAPI。</li>
+<li><strong>电器</strong> = 五种语言的 SDK。</li>
+<li><strong>电网</strong> = Docker、K8s、Fast Sandbox 后端。</li>
+</ul>
+<p>电器不知道电从哪来，换电网不用换电器。所以有一条硬规则：不能只改生成物来修问题，要改标准本身。</p>
+</div>
+<h2 id="s4">控制面：生命周期服务器</h2>
+<h3 id="s4-1">职责</h3>
+<p>一个 FastAPI 应用，是所有 SDK 共用的认证入口，只管生命周期。入口在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/main.py">main.py</a>，路由在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/api/lifecycle.py">lifecycle.py</a>。</p>
+<h3 id="s4-2">两条分层规则</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/control-plane/server.md#L25">server.md</a> 写得很明确：</p>
+<ol>
+<li><strong>API 层不直接接触运行时。</strong> 一切经过服务接口。</li>
+<li><strong>沙箱不是服务器数据库里的行。</strong> Docker 容器、K8s 资源或 Fast Sandbox CR 才是事实来源。服务器只持久化自己管理的记录，比如快照元数据和模板目录。</li>
+</ol>
+<p>第二条很关键：服务器本身几乎无状态，容器的 label 就是元数据。比如 <code>createdAt</code> 存在 <code>opensandbox.io/created-at</code> 这个 label 里。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>层</th>
+<th>目录</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/api">api/</a></td>
+<td>薄路由</td>
+</tr>
+<tr>
+<td>中间件</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/middleware">middleware/</a></td>
+<td>认证、请求 ID、指标</td>
+</tr>
+<tr>
+<td>服务</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services">services/</a></td>
+<td>状态机和运行时集成</td>
+</tr>
+<tr>
+<td>仓储</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/repositories">repositories/</a></td>
+<td>快照元数据，SQLite 或 PostgreSQL</td>
+</tr>
+<tr>
+<td>租户</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/tenants">tenants/</a></td>
+<td>多租户身份，只用于 K8s</td>
+</tr>
+<tr>
+<td>集成</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/integrations">integrations/</a></td>
+<td>空闲暂停、访问续期、OTel</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s4-3">生命周期是异步的</h3>
+<p>创建立即返回 <code>Pending</code>，客户端轮询或用 SDK 的就绪辅助函数。状态有 <code>Pending</code>、<code>Running</code>、<code>Pausing</code>、<code>Paused</code>、<code>Resuming</code>、<code>Stopping</code>、<code>Terminated</code>、<code>Failed</code>（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/control-plane/server.md#L36">Asynchronous lifecycle</a>）。</p>
+
+<figure class="flow"><div class="flow-head">沙箱状态<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;沙箱状态&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Pending&quot;, &quot;s&quot;: &quot;创建已接受&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;r&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Running&quot;, &quot;s&quot;: &quot;可执行&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ps&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Pausing&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pd&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Paused&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Failed&quot;, &quot;s&quot;: &quot;非 0 或失败&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;st&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Stopping&quot;, &quot;s&quot;: &quot;到期或删除&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rs&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Resuming&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;Terminated&quot;, &quot;s&quot;: &quot;退出码 0&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;ps&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ps&quot;, &quot;b&quot;: &quot;pd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pd&quot;, &quot;b&quot;: &quot;rs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rs:l&quot;, &quot;b&quot;: &quot;r:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;r&quot;, &quot;b&quot;: &quot;st&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;st&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 205.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 160.0}}"></div><figcaption>每个沙箱有绝对过期时间，通过 <code>renew</code> 延长。K8s 的删除是异步的，<code>DELETE</code> 返回 204 后要轮询到它消失。</figcaption></figure>
+<h3 id="s4-4">启动时就拒绝不安全的配置</h3>
+<p>服务器遵循 fail-fast：非交互环境没有 API key 是致命错误，除非显式确认不安全（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/startup_guard.py">startup_guard.py</a>）。</p>
+<h3 id="s4-5">服务接口</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/sandbox_service.py#L44">SandboxService</a> 是抽象基类，<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/factory.py#L35">create_sandbox_service</a> 按配置选实现。</p>
+<h2 id="s5">运行时后端</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>后端</th>
+<th>实现</th>
+<th>选用</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Docker</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/docker_service.py#L135">DockerSandboxService</a></td>
+<td><code>runtime.type = &quot;docker&quot;</code></td>
+<td>本地和单机</td>
+</tr>
+<tr>
+<td>Kubernetes</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/k8s/kubernetes_service.py">KubernetesSandboxService</a></td>
+<td><code>&quot;kubernetes&quot;</code></td>
+<td>BatchSandbox 或 agent-sandbox</td>
+</tr>
+<tr>
+<td>Fast Sandbox</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/fast_sandbox">FastSandboxService</a></td>
+<td>同样是 <code>kubernetes</code>，请求带 <code>templateId</code></td>
+<td>模板化 Firecracker</td>
+</tr>
+</tbody>
+</table></div>
+<p>Fast Sandbox <strong>不是</strong>单独的 <code>runtime.type</code>。<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/composite_service.py">CompositeSandboxService</a> 在 K8s 下按请求路由：带 <code>templateId</code> 的走 Fast Sandbox，ID 前缀 <code>fsb-</code> 决定后续操作归谁（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/fast-sandbox/index.md#L12">How it fits</a>）。不用新增公共 API，SDK 不用改。</p>
+<h3 id="s5-1">Docker 怎么把 execd 放进任意镜像</h3>
+<p>用户给的是任意镜像，比如 <code>alpine</code>，里面没有 execd。Docker 后端的做法是：</p>
+<ol>
+<li>从 execd 镜像取出二进制归档，按平台缓存在内存（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/runtime.py">runtime.py</a>）。</li>
+<li>创建容器，入口改成 bootstrap 脚本，原命令作为它的参数（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/container_ops.py#L485">container_ops.py</a>）。</li>
+<li>把归档复制进容器，再启动（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/container_ops.py#L535">_prepare_sandbox_runtime</a>）。</li>
+</ol>
+
+<figure class="flow"><div class="flow-head">把 execd 注入任意镜像<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;把 execd 注入任意镜像&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;i&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;execd 镜像&quot;, &quot;s&quot;: &quot;二进制归档&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;内存缓存&quot;, &quot;s&quot;: &quot;按平台&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;k&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;创建容器&quot;, &quot;s&quot;: &quot;入口换成 bootstrap&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;复制归档&quot;, &quot;s&quot;: &quot;容器启动前&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;bootstrap&quot;, &quot;s&quot;: &quot;先起 execd&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;用户命令&quot;, &quot;s&quot;: &quot;原 entrypoint&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;i&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;k&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;k&quot;, &quot;b&quot;: &quot;p&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;u&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 175.0}}"></div><figcaption>这样 <code>alpine</code> 这种没有准备过的镜像也能用同一套 execd API。<code>execd_run_as_init</code> 配置可以让 execd 作为 init 运行（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/container_ops.py#L317">代码</a>）。</figcaption></figure>
+<p>Kubernetes 用 init container 做同样的事（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/k8s/batchsandbox_provider.py#L192">batchsandbox_provider.py</a>）。Fast Sandbox 把 execd 烤进模板。</p>
+<h3 id="s5-2">隔离档位</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/config.py#L1269">SecureRuntimeConfig</a> 支持 <code>gvisor</code>、<code>kata</code>、<code>firecracker</code>。Firecracker 通过 <code>kata-fc</code> 只能用于 Kubernetes。默认是普通容器，也就是和宿主共享内核。<strong>处理不可信代码时，一定要配置 secure runtime。</strong></p>
+<h3 id="s5-3">Fast Sandbox</h3>
+
+<figure class="flow"><div class="flow-head">Fast Sandbox 的关键组件<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;Fast Sandbox 的关键组件&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;server / ingress&quot;, &quot;s&quot;: &quot;gRPC 调用&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;FastPath&quot;, &quot;s&quot;: &quot;内存放置 · 常数时间&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cr&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;sandbox.fast.io CRD&quot;, &quot;s&quot;: &quot;持久意图&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rc&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Reconciler&quot;, &quot;s&quot;: &quot;收敛到现实&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fl&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Fastlet&quot;, &quot;s&quot;: &quot;预热 pod · 多沙箱&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ag&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;runtime agent&quot;, &quot;s&quot;: &quot;管 Firecracker VM&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dt&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;DART&quot;, &quot;s&quot;: &quot;P2P 块分发&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tb&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;模板构建&quot;, &quot;s&quot;: &quot;OCI → 黄金镜像&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;fp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fp&quot;, &quot;b&quot;: &quot;cr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cr&quot;, &quot;b&quot;: &quot;rc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rc:b&quot;, &quot;b&quot;: &quot;ag:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ag:l&quot;, &quot;b&quot;: &quot;fl:r&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tb&quot;, &quot;b&quot;: &quot;dt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;dt&quot;, &quot;b&quot;: &quot;fl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 175.0}}"></div><figcaption>组件表见 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/fast-sandbox/index.md#L22">Core components</a>。<strong>FastPath、Fastlet 和 CRD 属于外部的 fast-sandbox 平台</strong>，这个仓库只有适配器。</figcaption></figure>
+<p>快的关键是：工作负载在请求之前就固定了。模板把镜像预构建成黄金镜像，创建只是表达意图，不是配置。Fastlet 预置好网络槽位，放置在内存中完成，不走 K8s 调度器。</p>
+<h2 id="s6">数据面：execd</h2>
+<h3 id="s6-1">职责</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/execd">execd</a> 是沙箱内的 Go 守护进程，提供命令、代码、PTY、文件、指标。SDK 的命令和文件操作都用这个 API。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>区域</th>
+<th>端点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>健康</td>
+<td><code>GET /ping</code>、<code>/ready</code></td>
+<td>不需要 token</td>
+</tr>
+<tr>
+<td>命令</td>
+<td><code>/command</code></td>
+<td>前台流式，或后台轮询</td>
+</tr>
+<tr>
+<td>会话</td>
+<td><code>/session</code></td>
+<td>有状态 shell</td>
+</tr>
+<tr>
+<td>代码</td>
+<td><code>/code</code>、<code>/code/contexts</code></td>
+<td>基于 Jupyter</td>
+</tr>
+<tr>
+<td>终端</td>
+<td><code>/pty</code></td>
+<td>WebSocket</td>
+</tr>
+<tr>
+<td>文件</td>
+<td><code>/files</code>、<code>/directories</code></td>
+<td>完整文件系统操作</td>
+</tr>
+<tr>
+<td>隔离会话</td>
+<td><code>/v1/isolated/*</code></td>
+<td>私有命名空间</td>
+</tr>
+<tr>
+<td>指标</td>
+<td><code>/metrics</code></td>
+<td>快照和流</td>
+</tr>
+<tr>
+<td>代理</td>
+<td><code>/proxy/{port}</code></td>
+<td>通过 execd 访问任意端口</td>
+</tr>
+</tbody>
+</table></div>
+<p>表格整理自 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/data-plane/execd.md#L29">execd.md</a>。配置了 token 时，请求要带 <code>X-EXECD-ACCESS-TOKEN</code>。</p>
+<p>代码入口：路由到 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/execd/pkg/web/controller/command.go">command.go</a> 的 <code>RunCommand</code>，执行在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/execd/pkg/runtime">runtime/</a>。</p>
+<p><code>/proxy/{port}</code> 解决了一个单机问题：一个映射的宿主端口就能到达沙箱内所有端口（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/network/single-host-network.md">Single-Host Network</a>）。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解的地方</div><ul>
+<li><strong>execd 和你的代码在同一个信任域</strong>，隔离在沙箱这一层，不在 execd 这一层。</li>
+<li><strong>执行不经过服务器</strong>。所以服务器日志里看不到命令，审计要在别处做。</li>
+<li><strong><code>renew</code> 不会自动发生</strong>。默认过期就没了，可以用 renew-on-access 集成。</li>
+</ul>
+</div>
+<h2 id="s7">网络面</h2>
+<h3 id="s7-1">入站</h3>
+<p>Kubernetes 上，<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/ingress">ingress</a> 是所有沙箱共用的反向代理，不需要逐沙箱配置。路由键是“沙箱 ID + 端口”：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>写法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>头部（默认）</td>
+<td><code>OpenSandbox-Ingress-To: &lt;id&gt;-&lt;port&gt;</code>，或主机名 <code>id-8080.example.com</code></td>
+</tr>
+<tr>
+<td>URI</td>
+<td><code>/&lt;id&gt;/&lt;port&gt;/&lt;path&gt;</code></td>
+</tr>
+<tr>
+<td>签名令牌</td>
+<td>带过期和 MAC，不用查表就能验证</td>
+</tr>
+</tbody>
+</table></div>
+<p>错误码是合约的一部分：<code>404</code> 是沙箱不存在，<code>503</code> 是存在但还没就绪（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/network/ingress.md#L23">Error semantics</a>）。客户端可以据此分支。</p>
+<p>客户端不猜地址，<code>GET /sandboxes/{id}/endpoints/{port}</code> 返回可达地址（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/api/lifecycle.py#L536">get_sandbox_endpoint</a>）。</p>
+<h3 id="s7-2">出站</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/egress">egress</a> 作为 sidecar 共享沙箱网络命名空间，所有出站包都经过它（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/network/egress.md#L6">egress.md</a>）。</p>
+
+<figure class="flow"><div class="flow-head">出站的两层<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;出站的两层&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;沙箱进程&quot;, &quot;s&quot;: &quot;发起连接&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;DNS 代理&quot;, &quot;s&quot;: &quot;第 1 层&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;n&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;nftables&quot;, &quot;s&quot;: &quot;第 2 层 · dns+nft&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;L7 代理&quot;, &quot;s&quot;: &quot;可选 TLS 拦截&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;o&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;外部&quot;, &quot;s&quot;: &quot;允许的目标&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;v&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;凭据保险库&quot;, &quot;s&quot;: &quot;注入 header&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;x&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;NXDOMAIN&quot;, &quot;s&quot;: &quot;拒绝的域名&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;n&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;n&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;o&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d:b&quot;, &quot;b&quot;: &quot;x:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;v:t&quot;, &quot;b&quot;: &quot;m:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 98.0, &quot;nw&quot;: 175.0}}"></div><figcaption>规则优先级：平台 <code>deny.always</code> → 平台 <code>allow.always</code> → 用户策略，第一条匹配生效。启动失败就退出，不会以空操作运行。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>强度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dns</code>（默认）</td>
+<td>只过滤解析。直接连 IP 可以绕过</td>
+</tr>
+<tr>
+<td><code>dns+nft</code></td>
+<td>包级默认拒绝，地址由 DNS 结果带租约喂入</td>
+</tr>
+</tbody>
+</table></div>
+<p>默认的 DNS 模式挡不住直连 IP，这一点要清楚。需要强保证就用 <code>dns+nft</code>。端口规则目前只支持 TCP（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/network/egress.md#L6">egress.md</a>）。</p>
+<h3 id="s7-3">凭据保险库</h3>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/guides/credential-vault.md">Credential Vault</a> 让 agent 调外部服务而看不到真实凭据：真实凭据写进 egress sidecar，出站时注入。它要求 <code>dns+nft</code> 模式，因为 DNS 模式下直连 IP 能绕过策略。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 公司前台的门卡</div><ul>
+<li><strong>员工</strong> = 沙箱里的 agent，不持有大楼门卡。</li>
+<li><strong>前台</strong> = egress sidecar，门卡放在前台抽屉。</li>
+<li><strong>出门办事</strong> = 出站请求：经过前台时，前台代为刷卡。</li>
+<li><strong>只能去名单上的地方</strong> = 出站策略。</li>
+</ul>
+<p>员工可以把工作证（假 token）给任何人看，但真门卡从未到过他手上。</p>
+</div>
+<h2 id="s8">Kubernetes 控制器</h2>
+<p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes">kubernetes/</a> 是一个独立的 Go operator，有三个 CRD：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>CRD</th>
+<th>作用</th>
+<th>定义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BatchSandbox</code></td>
+<td>一批沙箱</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/apis/sandbox/v1alpha1/batchsandbox_types.go">batchsandbox_types.go</a></td>
+</tr>
+<tr>
+<td><code>Pool</code></td>
+<td>预热资源池</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/apis/sandbox/v1alpha1/pool_types.go">pool_types.go</a></td>
+</tr>
+<tr>
+<td><code>SandboxSnapshot</code></td>
+<td>暂停和快照</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/apis/sandbox/v1alpha1/sandboxsnapshot_types.go">sandboxsnapshot_types.go</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>控制器在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/internal/controller">internal/controller</a>：<code>batchsandbox_controller.go</code>、<code>pool_controller.go</code>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/internal/controller/allocator.go">allocator.go</a> 负责把池里的 pod 分给 BatchSandbox。</p>
+
+<figure class="flow"><div class="flow-head">资源池分配<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;资源池分配&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;BatchSandbox&quot;, &quot;s&quot;: &quot;请求 N 个沙箱&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;allocator&quot;, &quot;s&quot;: &quot;分配 pod&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;就绪端点&quot;, &quot;s&quot;: &quot;写回 annotation&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;server&quot;, &quot;s&quot;: &quot;创建 CR · informer&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Pool&quot;, &quot;s&quot;: &quot;维持预热 pod&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;task-executor&quot;, &quot;s&quot;: &quot;pod 内执行任务&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a:r&quot;, &quot;b&quot;: &quot;t:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 225.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 180.0}}"></div><figcaption>server 用 informer 读状态（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/k8s/informer.py">informer.py</a>）。CRD 是公共接口，改 <code>apis/</code> 要跑 <code>make manifests</code> 和 <code>make generate</code>（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/AGENTS.md#L29">kubernetes/AGENTS.md</a>）。</figcaption></figure>
+<p>另一个可选后端是 <code>kubernetes-sigs/agent-sandbox</code>，实现在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/k8s/agent_sandbox_provider.py">agent_sandbox_provider.py</a>。</p>
+<h2 id="s9">SDK 与工具</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python、JS/TS、Kotlin/Java、C#、Go SDK</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/sandbox">sdks/sandbox</a></td>
+</tr>
+<tr>
+<td>Code Interpreter SDK</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/code-interpreter">sdks/code-interpreter</a></td>
+</tr>
+<tr>
+<td>MCP</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/mcp">sdks/mcp</a></td>
+</tr>
+<tr>
+<td><code>osb</code> CLI</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/cli">cli/</a></td>
+</tr>
+<tr>
+<td>控制台</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/console">console/</a></td>
+</tr>
+<tr>
+<td>Helm</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/manifests/charts">manifests/charts</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>生成的 OpenAPI 客户端和手写适配层并存：生成代码处理普通请求，手写层处理流式、传输、错误（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/index.md#L46">Client surface</a>）。<strong>永远不要只改生成物</strong>。</p>
+<p>代码解释器镜像已经搬到 <code>opensandbox-group/sandbox-images</code>，不在这里。</p>
+<h2 id="s10">端到端：从 create 到一条命令</h2>
+<pre><code class="language-python">sandbox = await Sandbox.create(&quot;alpine&quot;)
+execution = await sandbox.commands.run(&quot;echo 'Hello OpenSandbox!'&quot;)
+await sandbox.destroy()
+</code></pre>
+<p>简化自 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/README.md#L80">README</a>。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ Docker 模式下的创建和执行</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;sd&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Sandbox.create&quot;, &quot;s&quot;: &quot;Python SDK&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ap&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;POST /sandboxes&quot;, &quot;s&quot;: &quot;lifecycle.py&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sv&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;DockerService&quot;, &quot;s&quot;: &quot;create_sandbox&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ct&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;容器&quot;, &quot;s&quot;: &quot;bootstrap + execd&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;w&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;就绪检查&quot;, &quot;s&quot;: &quot;ping execd&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ep&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;get_endpoint&quot;, &quot;s&quot;: &quot;解析端口&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;POST /command&quot;, &quot;s&quot;: &quot;直连 execd&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sh&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;shell 进程&quot;, &quot;s&quot;: &quot;流式输出&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;del&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;destroy&quot;, &quot;s&quot;: &quot;DELETE&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gone&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;容器移除&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;sd&quot;, &quot;b&quot;: &quot;ap&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ap&quot;, &quot;b&quot;: &quot;sv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sv&quot;, &quot;b&quot;: &quot;ct&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ct&quot;, &quot;b&quot;: &quot;w&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;w&quot;, &quot;b&quot;: &quot;ep&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ep&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;run&quot;, &quot;b&quot;: &quot;sh&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sh&quot;, &quot;b&quot;: &quot;del&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;del&quot;, &quot;b&quot;: &quot;gone&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 152.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="sd"><div class="step-title">1. SDK 发起</div><p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/sandbox/python/src/opensandbox/sandbox.py#L101">Sandbox.create</a> 通过生成的客户端调用生命周期 API，默认 <code>ready_timeout</code> 是 30 秒。</p>
+</div><div class="step" data-hl="sd,ap"><div class="step-title">2. 路由</div><p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/api/lifecycle.py#L95">create_sandbox</a> 校验扩展字段和网络策略，然后交给 <code>sandbox_service</code>。路由本身很薄。</p>
+</div><div class="step" data-hl="ap,sv"><div class="step-title">3. 服务</div><p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/docker_service.py#L625">create_sandbox</a> 准备资源限制和 ID，调用 <code>_provision_sandbox</code>。</p>
+</div><div class="step" data-hl="sv,ct"><div class="step-title">4. 建容器</div><p><code>_create_and_start_container</code> 替换入口，复制 execd 归档，启动。容器的 label 记录元数据。</p>
+</div><div class="step" data-hl="ct,w"><div class="step-title">5. 等就绪</div><p>SDK 解析端点并做健康检查，直到 execd 响应或超时。</p>
+</div><div class="step" data-hl="w,ep"><div class="step-title">6. 取端点</div><p><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/sandbox/python/src/opensandbox/sandbox.py#L290">get_endpoint</a> 通过生命周期 API 得到可达地址。</p>
+</div><div class="step" data-hl="ep,run"><div class="step-title">7. 执行</div><p><code>commands.run</code> 直接请求 execd 的 <code>/command</code>，这一步<strong>不经过服务器</strong>。</p>
+</div><div class="step" data-hl="run,sh"><div class="step-title">8. 流式</div><p>execd 启动 shell，把输出流式返回。</p>
+</div><div class="step" data-hl="sh,del"><div class="step-title">9. 销毁</div><p><code>destroy</code> 调 <code>DELETE /sandboxes/{id}</code>。</p>
+</div><div class="step" data-hl="del,gone"><div class="step-title">10. 清理</div><p>容器移除。没有显式删除时，到期也会回收。</p>
+</div></div></div>
+<p>K8s 模式的差别：创建变成 CR，init container 放 execd，端点经 ingress。</p>
+<h2 id="s11">开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全部</td>
+<td>Apache-2.0</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/LICENSE">LICENSE</a></td>
+</tr>
+<tr>
+<td>项目治理</td>
+<td>LF Projects 技术章程</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/CHARTER.md">CHARTER.md</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/GOVERNANCE.md">GOVERNANCE.md</a></td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>按各生态的清单</td>
+<td>我没有逐个审计</td>
+</tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>允许吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用</td>
+<td>允许</td>
+<td>无</td>
+</tr>
+<tr>
+<td>提 PR</td>
+<td>允许</td>
+<td><strong>需要 DCO</strong>：<code>git commit -s</code>（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/CONTRIBUTING.md#L682">CONTRIBUTING</a>）</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>允许</td>
+<td>保留 LICENSE，商标按章程</td>
+</tr>
+<tr>
+<td>发安装包</td>
+<td>允许</td>
+<td>保留声明</td>
+</tr>
+<tr>
+<td>对外提供服务</td>
+<td>允许</td>
+<td>Apache-2.0 无网络条款</td>
+</tr>
+</tbody>
+</table></div>
+<p>历史：GitHub API 显示 <code>LICENSE</code> 有两条记录：2025-11-13 和 2025-12-17，第一条标题就是添加 Apache 2.0。包名里还保留 <code>alibaba</code>（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/README.md#L167">README</a>），Go 模块路径也是，说明项目最初来自阿里巴巴，这是根据命名的推断。</p>
+
+<div class="callout info"><div class="callout-title">不是法律意见</div><p>这是工程师读代码时的理解。</p>
+</div>
+<h2 id="s12">贡献与定制</h2>
+<h3 id="s12-1">开发环境</h3>
+<pre><code class="language-bash">cd server
+uv sync --all-groups
+cp opensandbox_server/examples/example.config.toml ~/.sandbox.toml
+uv run python -m opensandbox_server.main
+uv run pytest tests/test_docker_service.py
+</code></pre>
+<p>来自 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/CONTRIBUTING.md#L71">Quick Setup</a> 和 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/AGENTS.md#L28">server/AGENTS.md</a>。</p>
+<h3 id="s12-2">项目规则</h3>
+<ul>
+<li>根 AGENTS.md 是路由器，先读最近目录的 <code>AGENTS.md</code>。</li>
+<li>公共 API、SDK、CLI、生命周期语义、运行时隔离、网络的改动，走 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/oseps">OSEP</a> 提案（<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/GOVERNANCE.md#L18">Governance</a>）。</li>
+<li>路由保持薄，逻辑放服务层。</li>
+<li>Docker 能跑不代表 K8s 能跑。</li>
+<li>不要只改生成物。</li>
+<li>破坏性变更要先问。</li>
+<li>提交带 DCO。</li>
+</ul>
+<h3 id="s12-3">适合入手的方向</h3>
+<ul>
+<li>文档和示例：<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/tree/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/examples">docs/examples</a>。</li>
+<li>SDK 能力对齐：五种语言容易有差异。</li>
+<li>诊断 API 和错误信息。</li>
+<li><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/ROADMAP.md">ROADMAP</a> 上的条目。</li>
+</ul>
+<p>需要避开：没有 OSEP 就改公共合约。</p>
+<h3 id="s12-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">想让它适配我的环境<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;想让它适配我的环境&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;q&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;要改什么？&quot;, &quot;s&quot;: &quot;从配置开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;配置&quot;, &quot;s&quot;: &quot;secure runtime · egress&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;自定义镜像&quot;, &quot;s&quot;: &quot;实现 execd 或用参考版&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;新运行时&quot;, &quot;s&quot;: &quot;实现 SandboxService&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;写 OSEP&quot;, &quot;s&quot;: &quot;公共合约变更&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;a:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;q:r&quot;, &quot;b&quot;: &quot;c:l&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 240.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 195.0}}"></div><figcaption>配置示例在 <a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/examples/example.config.toml">example.config.toml</a>。</figcaption></figure>
+<h3 id="s12-5">仓库里没有的东西</h3>
+<ul>
+<li><strong>fast-sandbox 平台</strong>：FastPath、Fastlet、CRD 在 <a href="https://github.com/opensandbox-group/fast-sandbox">fast-sandbox</a>。</li>
+<li><strong>官方沙箱镜像</strong>：在 <code>sandbox-images</code>。</li>
+<li><strong>DART</strong>：外部的块分发项目。</li>
+<li><strong>Firecracker、gVisor、Kata</strong>：要自己准备。</li>
+</ul>
+<h2 id="s13">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>链接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>路由表</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/AGENTS.md">AGENTS.md</a></td>
+</tr>
+<tr>
+<td>架构总览</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/index.md">index.md</a></td>
+</tr>
+<tr>
+<td>合约</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/specs/README.md">specs/README.md</a></td>
+</tr>
+<tr>
+<td>服务器入口</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/main.py">main.py</a></td>
+</tr>
+<tr>
+<td>配置</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/config.py">config.py</a></td>
+</tr>
+<tr>
+<td>生命周期 API</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/api/lifecycle.py">lifecycle.py</a></td>
+</tr>
+<tr>
+<td>Docker</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/docker/docker_service.py">docker_service.py</a></td>
+</tr>
+<tr>
+<td>K8s</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/server/opensandbox_server/services/k8s/kubernetes_service.py">kubernetes_service.py</a></td>
+</tr>
+<tr>
+<td>execd</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/execd/main.go">main.go</a></td>
+</tr>
+<tr>
+<td>egress</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/egress/main.go">main.go</a></td>
+</tr>
+<tr>
+<td>ingress</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/components/ingress/main.go">main.go</a></td>
+</tr>
+<tr>
+<td>控制器</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/kubernetes/internal/controller/batchsandbox_controller.go">batchsandbox_controller.go</a></td>
+</tr>
+<tr>
+<td>Python SDK</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/sdks/sandbox/python/src/opensandbox/sandbox.py">sandbox.py</a></td>
+</tr>
+<tr>
+<td>Fast Sandbox</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/docs/architecture/fast-sandbox/index.md">index.md</a></td>
+</tr>
+<tr>
+<td>治理</td>
+<td><a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/GOVERNANCE.md">GOVERNANCE.md</a>、<a class="src" href="https://github.com/opensandbox-group/OpenSandbox/blob/0da12cf7ca9c07a178992a3665bf8833fb1984bd/CHARTER.md">CHARTER.md</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

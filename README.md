@@ -16,6 +16,7 @@
 | `pi-subagents-report/` | pi-subagents 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/pi-subagents-report/report.html) |
 | `kirocrew-report/` | Kiro Crew 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/kirocrew-report/report.html) |
 | `egglog-report/` | egglog 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/egglog-report/report.html) |
+| `opensandbox-report/` | OpenSandbox 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/opensandbox-report/report.html) |
 
 ## 添加新笔记
 
