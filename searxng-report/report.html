@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SearXNG：从原理到源码</title>
+<meta name="description" content="一份给想读懂、贡献或定制 SearXNG 的工程师的导读：一个不追踪用户的元搜索引擎，怎样把一次查询同时发给几十个搜索引擎、在 3 秒内收回结果、去重打分，再保护好用户和实例本身。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:SearXNG：从原理到源码" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">SearXNG 导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：元搜索要解决什么问题</a>
+<a class="nav-l3" href="#s2-1">没有它时的问题</a>
+<a class="nav-l3" href="#s2-2">要求、目标与限制</a>
+<a class="nav-l2" href="#s3">入口与配置</a>
+<a class="nav-l3" href="#s3-1">进程怎么起来</a>
+<a class="nav-l3" href="#s3-2">配置怎么叠加</a>
+<a class="nav-l2" href="#s4">请求预处理：偏好、查询语法与 SearchQuery</a>
+<a class="nav-l3" href="#s4-1">偏好从哪来</a>
+<a class="nav-l3" href="#s4-2">查询语法</a>
+<a class="nav-l2" href="#s5">搜索调度：线程、截止时间与挂起</a>
+<a class="nav-l3" href="#s5-1">职责与难点</a>
+<a class="nav-l3" href="#s5-2">三条路径</a>
+<a class="nav-l3" href="#s5-3">每个引擎一个线程，统一的截止时间</a>
+<a class="nav-l3" href="#s5-4">挂起与退避</a>
+<a class="nav-l2" href="#s6">引擎：一个模块，两个函数</a>
+<a class="nav-l3" href="#s6-1">契约</a>
+<a class="nav-l3" href="#s6-2">一个模块可以变成多个引擎</a>
+<a class="nav-l3" href="#s6-3">几种 processor</a>
+<a class="nav-l3" href="#s6-4">语言和地区：traits</a>
+<a class="nav-l2" href="#s7">网络层：冒充浏览器的连接池</a>
+<a class="nav-l3" href="#s7-1">难点</a>
+<a class="nav-l3" href="#s7-2">原理</a>
+<a class="nav-l2" href="#s8">结果合并与排序</a>
+<a class="nav-l3" href="#s8-1">结果汇到哪里</a>
+<a class="nav-l3" href="#s8-2">什么算同一条结果</a>
+<a class="nav-l3" href="#s8-3">怎么打分</a>
+<a class="nav-l3" href="#s8-4">第二轮：按类型聚拢</a>
+<a class="nav-l2" href="#s9">插件、答题器与输出</a>
+<a class="nav-l3" href="#s9-1">插件的三个钩子</a>
+<a class="nav-l3" href="#s9-2">答题器</a>
+<a class="nav-l3" href="#s9-3">四种输出</a>
+<a class="nav-l2" href="#s10">隐私与防滥用</a>
+<a class="nav-l3" href="#s10-1">“不追踪”落在哪几处代码</a>
+<a class="nav-l3" href="#s10-2">limiter：挡住把实例当免费 API 的机器人</a>
+<a class="nav-l2" href="#s11">端到端：一次 !gh vllm 的完整路径</a>
+<a class="nav-l2" href="#s12">部署形态与配置</a>
+<a class="nav-l2" href="#s13">开源许可证</a>
+<a class="nav-l2" href="#s14">贡献与定制</a>
+<a class="nav-l3" href="#s14-1">开发环境</a>
+<a class="nav-l3" href="#s14-2">项目的规矩</a>
+<a class="nav-l3" href="#s14-3">适合入手的方向</a>
+<a class="nav-l3" href="#s14-4">定制路线</a>
+<a class="nav-l2" href="#s15">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Source-level guide · searxng/searxng</div><h1>SearXNG：从原理到源码</h1><p class="lede">一份给想读懂、贡献或定制 SearXNG 的工程师的导读：一个不追踪用户的元搜索引擎，怎样把一次查询同时发给几十个搜索引擎、在 3 秒内收回结果、去重打分，再保护好用户和实例本身。</p><p class="meta">searxng/searxng @ 3a3dd15</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读给三类读者：想<strong>读懂</strong> SearXNG 怎么工作的人，想给它<strong>提 PR</strong> 的人，以及想<strong>部署或定制</strong>一个自己的实例（比如给本地大模型当搜索工具）的人。</p>
+<p>全文按一次查询走过的路径展开：</p>
+<ol>
+<li><strong>全景</strong>：元搜索要解决什么问题，SearXNG 的目标和限制。</li>
+<li><strong>入口与配置</strong>：进程怎么启动，<code>settings.yml</code> 怎么叠加。</li>
+<li><strong>请求预处理</strong>：偏好（cookie）、查询语法（<code>!gh</code>、<code>:zh</code>、<code>&lt;3</code>）、组装 <code>SearchQuery</code>。</li>
+<li><strong>搜索调度</strong>：每个引擎一个线程、统一的截止时间、失败引擎的挂起退避。</li>
+<li><strong>引擎</strong>：一个引擎就是一个 Python 模块，<code>request()</code> + <code>response()</code>。</li>
+<li><strong>网络层</strong>：<code>curl_cffi</code> 冒充 Chrome、每个引擎独立的连接池和代理。</li>
+<li><strong>结果合并与排序</strong>：去重规则和评分公式。</li>
+<li><strong>插件、答题器与输出</strong>：三个钩子、四种输出格式。</li>
+<li><strong>隐私与防滥用</strong>：不追踪用户的那几处设计，以及 limiter 怎么挡机器人。</li>
+<li><strong>端到端</strong>：把 <code>!gh vllm</code> 从按下回车到看到结果串一遍。</li>
+<li><strong>部署形态</strong>、<strong>许可证（AGPL）</strong>、<strong>贡献与定制</strong>、<strong>源码索引</strong>。</li>
+</ol>
+<p>正文里的源码链接都指向 GitHub 上固定 commit 的代码行，上游继续改动也不会漂移。HTML 版里把鼠标悬停在图的节点上，会高亮它的连线。</p>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p><code>searxng/searxng</code> @ <code>3a3dd15</code>（2026-11-08，master）。Python 约 5.2 万行，<code>searx/engines/</code> 下 255 个引擎模块，默认配置里登记了 353 个引擎条目。</p>
+</div>
+<h2 id="s2">全景：元搜索要解决什么问题</h2>
+<h3 id="s2-1">没有它时的问题</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>SearXNG 的做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>隐私</strong></td>
+<td>直接用 Google、Bing 时，搜索词、IP、cookie、点击都被记录并用于画像</td>
+<td>由实例代你去问：上游只看到实例的 IP；偏好只存在你浏览器的 cookie 里；结果链接不带 Referer</td>
+</tr>
+<tr>
+<td><strong>覆盖面</strong></td>
+<td>单个搜索引擎的索引和排序有偏向；论文、代码、包、图片、地图分散在不同的站点</td>
+<td>同时查询多个引擎（通用、图片、视频、新闻、学术、IT、地图……），合并去重、统一打分</td>
+</tr>
+<tr>
+<td><strong>可控性</strong></td>
+<td>无法自己决定用哪些来源、屏蔽哪些站点、改写链接</td>
+<td>一个 YAML 文件开关引擎、调权重；插件可以删除、提权或改写结果</td>
+</tr>
+<tr>
+<td><strong>可编程</strong></td>
+<td>搜索 API 多数收费、要申请 key</td>
+<td>自建实例后可以开 <code>json</code> 格式，给脚本和 LLM 当免费的搜索 API</td>
+</tr>
+</tbody>
+</table></div>
+
+<figure class="flow"><div class="flow-head">全景：一次查询经过的地方<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;全景：一次查询经过的地方&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;user&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;浏览器 / 脚本&quot;, &quot;s&quot;: &quot;HTML · JSON · RSS&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;proxy&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;反向代理&quot;, &quot;s&quot;: &quot;nginx · Caddy（可选）&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;app&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;SearXNG 实例&quot;, &quot;s&quot;: &quot;Flask + granian&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eng&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;上游搜索引擎&quot;, &quot;s&quot;: &quot;Google · Brave · …&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;valkey&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Valkey&quot;, &quot;s&quot;: &quot;限流计数（可选）&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tor&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;代理 / Tor&quot;, &quot;s&quot;: &quot;出站可选&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;user&quot;, &quot;b&quot;: &quot;proxy&quot;, &quot;t&quot;: &quot;查询&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;proxy&quot;, &quot;b&quot;: &quot;app&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;app&quot;, &quot;b&quot;: &quot;eng&quot;, &quot;t&quot;: &quot;并发&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: true, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;app&quot;, &quot;b&quot;: &quot;valkey&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;app&quot;, &quot;b&quot;: &quot;tor&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 220.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 150.0}}"></div><figcaption>实例本身没有索引，所有结果都来自上游；它的工作是转发、合并和保护隐私。入口见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L641">webapp.search()</a>，出站在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/client.py#L64">network/client.py</a>。</figcaption></figure>
+
+<div class="callout analogy"><div class="callout-title">类比 · 帮你比价的代购</div><p>你把要买的东西告诉代购（搜索词），代购同时去好几家店问价（各个引擎），店家只看到代购，不知道是你在买（隐私）。几家店卖的同一件商品只算一件，哪家都有的排前面（去重和打分）。代购只给每家店 3 秒（超时），哪家店连着出问题就先别去了（挂起）。</p>
+</div>
+<h3 id="s2-2">要求、目标与限制</h3>
+<p>后面每一章都在回答这张表里的某一行。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+<th>在哪一章解决</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>核心目标</strong></td>
+<td>不追踪、不画像用户的元搜索引擎</td>
+<td>隐私与防滥用</td>
+</tr>
+<tr>
+<td><strong>功能要求</strong></td>
+<td>多引擎并发、合并去重、分类标签、多语言、多种输出格式、可扩展的引擎和插件</td>
+<td>引擎；结果合并；插件与输出</td>
+</tr>
+<tr>
+<td><strong>延迟限制</strong></td>
+<td>一个页面要等所有引擎；默认每个引擎只给 3 秒，最慢的不能拖住整页</td>
+<td>搜索调度</td>
+</tr>
+<tr>
+<td><strong>外部限制</strong></td>
+<td>上游会限流、出验证码、封 IP，接口和页面结构随时变；有的只认真实浏览器的 TLS 指纹</td>
+<td>网络层；搜索调度（挂起）</td>
+</tr>
+<tr>
+<td><strong>滥用风险</strong></td>
+<td>公开实例会被机器人当免费搜索 API 刷，进而被上游封锁</td>
+<td>隐私与防滥用（limiter）</td>
+</tr>
+<tr>
+<td><strong>部署形态</strong></td>
+<td>个人、家庭、公开实例都要能跑；配置要能只写差异</td>
+<td>部署形态</td>
+</tr>
+<tr>
+<td><strong>许可证</strong></td>
+<td>AGPL-3.0-or-later：对外提供服务时要提供修改后的源码</td>
+<td>许可证</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s3">入口与配置</h2>
+<h3 id="s3-1">进程怎么起来</h3>
+<p><code>searx/webapp.py</code> 在<strong>被 import 的时候</strong>就完成全部初始化：模块末尾直接调用 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1429">init()</a>，所以无论用 granian、uwsgi 还是 <code>python -m searx.webapp</code>，加载这个模块就会加载所有引擎、建好网络和插件。</p>
+
+<figure class="flow"><div class="flow-head">启动顺序与 WSGI 包装<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;启动顺序与 WSGI 包装&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;gr&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;granian&quot;, &quot;s&quot;: &quot;searx.webapp:app&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pf&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ProxyFix&quot;, &quot;s&quot;: &quot;还原真实 IP/协议&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;wn&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;WhiteNoise&quot;, &quot;s&quot;: &quot;直接回静态文件&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fl&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Flask app&quot;, &quot;s&quot;: &quot;路由 + 模板&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;init&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;init()&quot;, &quot;s&quot;: &quot;import 时执行&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eng&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;加载引擎&quot;, &quot;s&quot;: &quot;load_engines&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;net&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;网络与指标&quot;, &quot;s&quot;: &quot;Network · metrics&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;lim&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;limiter&quot;, &quot;s&quot;: &quot;需要 Valkey&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;gr&quot;, &quot;b&quot;: &quot;pf&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pf&quot;, &quot;b&quot;: &quot;wn&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;wn&quot;, &quot;b&quot;: &quot;fl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fl&quot;, &quot;b&quot;: &quot;init&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;init&quot;, &quot;b&quot;: &quot;eng&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;eng&quot;, &quot;b&quot;: &quot;net&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;net&quot;, &quot;b&quot;: &quot;lim&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 158.0}}"></div><figcaption>外层包装见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1414-L1424">webapp.py 末尾</a>；<code>init()</code> 依次初始化缓存库、favicon、语言、Valkey、插件、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L33">search.initialize</a>（引擎、网络、指标、processor），最后装上 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.py#L222">limiter</a>。容器里用 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/container/entrypoint.sh#L126">granian</a> 启动。</figcaption></figure>
+<p>两个启动期检查值得记住：生产模式下 <code>server.secret_key</code> 还是默认的 <code>ultrasecretkey</code> 就直接退出（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1370">init</a>）；<code>public_instance: true</code> 但连不上 Valkey 也会退出（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.py#L222">limiter.initialize</a>）。</p>
+<h3 id="s3-2">配置怎么叠加</h3>
+<p>默认配置是仓库里的 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml">searx/settings.yml</a>（约 3500 行，大部分是引擎列表）。你自己的配置通常只写差异：</p>
+<pre><code class="language-yaml">use_default_settings: true      # 先读默认配置，再叠加下面的值
+server:
+  secret_key: &quot;…&quot;
+  limiter: false
+search:
+  formats: [html, json]         # 默认只有 html；脚本要用 JSON 必须打开
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>作用</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>配置文件位置</td>
+<td><code>SEARXNG_SETTINGS_PATH</code>（文件或目录）→ <code>/etc/searxng</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_loader.py#L66">get_user_cfg_folder</a></td>
+</tr>
+<tr>
+<td><code>use_default_settings</code></td>
+<td>按键合并到默认配置；<code>engines.remove</code> / <code>keep_only</code> 删减引擎</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_loader.py#L127">update_settings</a></td>
+</tr>
+<tr>
+<td>环境变量覆盖</td>
+<td><code>SEARXNG_SECRET</code>、<code>SEARXNG_PORT</code> 等直接覆盖对应键</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_defaults.py#L65">SettingsValue</a></td>
+</tr>
+<tr>
+<td>类型与默认值</td>
+<td>每个键的类型、默认值、合法取值</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_defaults.py">settings_defaults.py</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解</div><p><code>search.formats</code> 默认只有 <code>html</code>（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml#L84-L86">settings.yml</a>）。用 <code>format=json</code> 请求一个没打开 JSON 的实例会得到 403，而不是空结果，见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L641">search()</a> 开头的检查。</p>
+</div>
+<h2 id="s4">请求预处理：偏好、查询语法与 SearchQuery</h2>
+<h3 id="s4-1">偏好从哪来</h3>
+<p>SearXNG 没有账号，也没有服务端会话。每个请求进来时，<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L482">pre_request()</a> 新建一个 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/preferences.py#L391">Preferences</a>，依次用这些来源填它：</p>
+<ol>
+<li>浏览器的 <strong>cookie</strong>（你在偏好页保存的设置）；</li>
+<li>本次请求的 GET/POST 参数，或一个编码过的 <code>preferences</code> 参数（可以把整套设置写进一个 URL 带走）；</li>
+<li>都没有时，用浏览器的 <code>Accept-Language</code> 推断搜索语言和界面语言。</li>
+</ol>
+<p>它还算出这个请求启用了哪些插件，存在 <code>sxng_request.user_plugins</code>。整个过程不落盘，这是“不追踪”在代码层面的落点之一：服务端不需要也不保存任何用户身份。</p>
+<h3 id="s4-2">查询语法</h3>
+<p>搜索框里的文字先交给 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L250">RawTextQuery</a>：按空白切开，每一段依次问几个解析器“这是不是你的语法”。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>解析器</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;3</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L43">TimeoutParser</a></td>
+<td>本次搜索的超时上限（秒）</td>
+</tr>
+<tr>
+<td><code>:zh</code>、<code>:en-US</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L72">LanguageParser</a></td>
+<td>搜索语言 / 地区</td>
+</tr>
+<tr>
+<td><code>!gh</code>、<code>!images</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L178">BangParser</a></td>
+<td>只用某个引擎（按 shortcut 或名字）或某个分类</td>
+</tr>
+<tr>
+<td><code>!!w 量子</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L151">ExternalBangParser</a></td>
+<td>外部 bang：直接 302 跳到别的网站搜</td>
+</tr>
+<tr>
+<td><code>!!</code> 单独出现</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L240">FeelingLuckyParser</a></td>
+<td>直接跳到第一条结果</td>
+</tr>
+</tbody>
+</table></div>
+
+<figure class="flow"><div class="flow-head">从表单到 SearchQuery<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从表单到 SearchQuery&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;form&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;表单 + cookie&quot;, &quot;s&quot;: &quot;q · 分类 · 页码&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pref&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Preferences&quot;, &quot;s&quot;: &quot;启用的引擎/插件&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;raw&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;RawTextQuery&quot;, &quot;s&quot;: &quot;拆出 ! : &lt; 语法&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ref&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;EngineRef 列表&quot;, &quot;s&quot;: &quot;引擎名 + 分类&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sq&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;SearchQuery&quot;, &quot;s&quot;: &quot;这次要搜什么&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;form&quot;, &quot;b&quot;: &quot;pref&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;form&quot;, &quot;b&quot;: &quot;raw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pref&quot;, &quot;b&quot;: &quot;ref&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;raw&quot;, &quot;b&quot;: &quot;ref&quot;, &quot;t&quot;: &quot;!bang&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ref&quot;, &quot;b&quot;: &quot;sq&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;raw&quot;, &quot;b&quot;: &quot;sq&quot;, &quot;t&quot;: &quot;语言 · 超时&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 166.0}}"></div><figcaption>组装在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webadapter.py#L221">get_search_query_from_webapp</a>：有 <code>!bang</code> 时用查询里指定的引擎，否则按所选分类和偏好展开；再去重、过滤掉用户禁用或需要 token 的引擎。结构定义见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/models.py#L28">SearchQuery</a> 和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/models.py#L8">EngineRef</a>。</figcaption></figure>
+<p><code>SearchQuery</code> 是后面所有组件的输入：查询词（去掉了语法部分）、<code>EngineRef</code> 列表、语言、页码、时间范围、safesearch、超时上限，以及 <code>engine_data</code>（个别引擎需要跨页保存的数据，比如翻页 token，放在 HTML 表单里往返，服务端仍然不保存状态）。</p>
+<h2 id="s5">搜索调度：线程、截止时间与挂起</h2>
+<h3 id="s5-1">职责与难点</h3>
+<p>调度要在一个固定的时间预算里，把同一个查询发给可能几十个引擎，并且<strong>最慢的那个不能拖住整页</strong>。上游还会时好时坏：限流、验证码、超时，失败的引擎要先别去打扰它。</p>
+<h3 id="s5-2">三条路径</h3>
+<p><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L176">Search.search()</a> 先尝试两条捷径，都不满足才真正去查引擎：</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一次搜索走哪条路</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;start&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Search.search()&quot;, &quot;s&quot;: &quot;start_time 计时开始&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bang&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;外部 bang？&quot;, &quot;s&quot;: &quot;!!w → 302 跳转&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ans&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;答题器命中？&quot;, &quot;s&quot;: &quot;random · 统计&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;std&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;search_standard&quot;, &quot;s&quot;: &quot;并发查引擎&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rc&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ResultContainer&quot;, &quot;s&quot;: &quot;结果都汇到这里&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;start&quot;, &quot;b&quot;: &quot;bang&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bang&quot;, &quot;b&quot;: &quot;ans&quot;, &quot;t&quot;: &quot;否&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ans&quot;, &quot;b&quot;: &quot;std&quot;, &quot;t&quot;: &quot;否&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bang&quot;, &quot;b&quot;: &quot;rc&quot;, &quot;t&quot;: &quot;是&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;ans&quot;, &quot;b&quot;: &quot;rc&quot;, &quot;t&quot;: &quot;是&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;std&quot;, &quot;b&quot;: &quot;rc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: true, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 160.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="start,bang"><div class="step-title">1. 先看外部 bang</div><p>查询里有 <code>!!w</code> 这类外部 bang 时，<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L59">search_external_bang</a> 只算出跳转地址，整个搜索到此结束，webapp 返回 302。</p>
+</div><div class="step" data-hl="bang,ans"><div class="step-title">2. 再问答题器</div><p>答题器是不联网的小功能，比如“random uuid”“avg 1 2 3”。<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L71">search_answerers</a> 有结果就直接返回，不再查任何引擎。</p>
+</div><div class="step" data-hl="ans,std,rc"><div class="step-title">3. 否则并发查引擎</div><p><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L162">search_standard</a> 为每个选中的引擎准备请求，再为每个引擎起一个线程，结果都写进同一个 <code>ResultContainer</code>。</p>
+</div></div></div>
+<h3 id="s5-3">每个引擎一个线程，统一的截止时间</h3>
+<p><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L78">_get_requests</a> 对每个 <code>EngineRef</code>：</p>
+<ol>
+<li>找到它的 processor；<strong>引擎处于挂起状态就跳过</strong>，并把它记为“无响应（已挂起）”；</li>
+<li>调 <code>processor.get_params()</code> 生成请求参数；引擎不支持当前页码或时间范围时返回 <code>None</code>，同样跳过；</li>
+<li>记下所有引擎超时的最大值，作为默认超时。</li>
+</ol>
+<p>实际超时再和两个上限比较：用户在查询里写的 <code>&lt;N</code>，以及管理员配置的 <code>outgoing.max_request_timeout</code>：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th><code>max_request_timeout</code></th>
+<th>用户写了 <code>&lt;N</code></th>
+<th>实际超时</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>未设置</td>
+<td>没写</td>
+<td>所有引擎超时的最大值（默认 3 秒）</td>
+</tr>
+<tr>
+<td>未设置</td>
+<td>写了</td>
+<td>min(默认值, N)</td>
+</tr>
+<tr>
+<td>设置了</td>
+<td>没写</td>
+<td>min(默认值, max)</td>
+</tr>
+<tr>
+<td>设置了</td>
+<td>写了</td>
+<td>min(N, max)</td>
+</tr>
+</tbody>
+</table></div>
+<p>然后 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L138">search_multiple_requests</a> 给每个引擎起一个线程，线程名都是同一个 <code>search_id</code>。等待时用的是<strong>剩余预算</strong>：<code>th.join(actual_timeout - 已用时间)</code>。到点还没回来的线程不会被杀掉，只被标记为超时，引擎记为“timeout”，页面不再等它，它晚到的结果也会被丢掉（<code>ResultContainer</code> 关闭后忽略新结果，见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L82">extend</a>）。</p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 统一收卷的考场</div><p>所有考生（引擎）同时开考，监考老师只看墙上一个钟（<code>start_time</code> + <code>actual_timeout</code>）。到点收卷，没交的记“缺考”，不会因为某个人写得慢而推迟收卷。连续作弊被抓（验证码、429）的考生下几场禁考（挂起），禁考时间越来越长，但有上限。</p>
+</div>
+<h3 id="s5-4">挂起与退避</h3>
+<p>失败分两类：普通异常只记录错误；网络超时、SSL 错误、请求异常、验证码、429、403 这几类会<strong>挂起</strong>引擎（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/online.py#L245">OnlineProcessor.search</a> 里的 <code>suspend=True</code>）。挂起时长由 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/abstract.py#L95">SuspendedStatus.suspend</a> 决定：异常自带时长就用它（比如上游返回了 Retry-After），否则用 <code>search.ban_time_on_fail</code>（默认 5 秒），上限 <code>search.max_ban_time_on_fail</code>（默认 120 秒）。之后有一次成功，<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/abstract.py#L224">extend_container</a> 就调用 <code>resume()</code> 解除。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解</div><p>挂起状态是按引擎存在<strong>进程内存</strong>里的（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/abstract.py#L121">SUSPENDED_STATUS</a>）。用 granian 开多个 worker 进程时，每个进程各自记一份；一个 worker 里挂起的引擎，另一个 worker 可能还在请求。</p>
+</div>
+<h2 id="s6">引擎：一个模块，两个函数</h2>
+<h3 id="s6-1">契约</h3>
+<p>一个引擎就是 <code>searx/engines/</code> 下的一个 Python 模块。最小的契约只有两个函数：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>名字</th>
+<th>作用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>request(query, params)</code></td>
+<td>填 <code>params[&quot;url&quot;]</code>，需要时改 <code>method</code>、<code>headers</code>、<code>data</code>、<code>cookies</code></td>
+<td><code>params</code> 里已有 <code>pageno</code>、<code>safesearch</code>、<code>time_range</code>、<code>searxng_locale</code> 等，见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/abstract.py#L36">RequestParams</a> 和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/online.py#L98">OnlineParams</a></td>
+</tr>
+<tr>
+<td><code>response(resp)</code></td>
+<td>解析 HTTP 响应，返回结果列表</td>
+<td>每条结果至少有 <code>url</code>、<code>title</code>、<code>content</code>；可以指定 <code>template</code>（图片、视频、包、论文……）</td>
+</tr>
+<tr>
+<td>模块属性</td>
+<td><code>categories</code>、<code>paging</code>、<code>time_range_support</code>、<code>about</code> 等</td>
+<td>未写的用 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/__init__.py#L32">ENGINE_DEFAULT_ARGS</a> 的默认值</td>
+</tr>
+<tr>
+<td><code>setup(engine_settings)</code>、<code>init()</code></td>
+<td>可选：加载时检查配置、启动时预热</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/__init__.py#L272">call_engine_setup</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>GitHub 引擎是很好的最小例子，整个文件 65 行：</p>
+<pre><code class="language-python"># 简化自 searx/engines/github.py
+categories = ['it', 'repos']
+search_url = 'https://api.github.com/search/repositories?sort=stars&amp;order=desc&amp;{query}'
+
+def request(query, params):
+    params['url'] = search_url.format(query=urlencode({'q': query}))
+    params['headers']['Accept'] = accept_header
+    return params
+
+def response(resp):
+    return [{'template': 'packages.html', 'url': item['html_url'],
+             'title': item['full_name'], 'popularity': item['stargazers_count'], ...}
+            for item in resp.json().get('items', [])]
+</code></pre>
+<p>见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/github.py#L25">github.request</a> 和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/github.py#L33">github.response</a>。</p>
+<h3 id="s6-2">一个模块可以变成多个引擎</h3>
+<p><code>settings.yml</code> 里的每一项 <code>- name: … engine: …</code> 都是一个<strong>引擎实例</strong>。<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/__init__.py#L90">load_engine</a> 按 <code>engine:</code> 加载模块，套上默认值，再用这一项的配置覆盖。所以同一个模块可以配置出多个引擎：通用的 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/xpath.py">xpath</a> 和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/json_engine.py">json_engine</a> 模块，只靠配置里的 URL 和 XPath / JSON 路径，就能接入一个新网站，不用写代码。</p>
+
+<figure class="flow"><div class="flow-head">从配置项到可用的引擎<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从配置项到可用的引擎&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;yml&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;settings.yml&quot;, &quot;s&quot;: &quot;- name / engine / …&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mod&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;引擎模块&quot;, &quot;s&quot;: &quot;engines/&lt;engine&gt;.py&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;def&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;套默认值&quot;, &quot;s&quot;: &quot;ENGINE_DEFAULT_ARGS&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;语言/地区特性&quot;, &quot;s&quot;: &quot;engine_traits.json&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ok&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;注册&quot;, &quot;s&quot;: &quot;engines · 分类 · bang&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;proc&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Processor&quot;, &quot;s&quot;: &quot;按 engine_type 选&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;yml&quot;, &quot;b&quot;: &quot;mod&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mod&quot;, &quot;b&quot;: &quot;def&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;def&quot;, &quot;b&quot;: &quot;tr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tr&quot;, &quot;b&quot;: &quot;ok&quot;, &quot;t&quot;: &quot;启用且属性齐全&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ok&quot;, &quot;b&quot;: &quot;proc&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 162.0}}"></div><figcaption>加载流程见 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/__init__.py#L90">load_engine</a>：名字不能有下划线、<code>inactive</code> 的跳过、缺必填属性的跳过、<code>setup()</code> 失败的跳过。语言和地区映射来自离线生成的 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/data/engine_traits.json">engine_traits.json</a>（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/enginelib/traits.py#L37">EngineTraits</a>）。processor 的选择在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/__init__.py#L57">ProcessorMap.init</a>。</figcaption></figure>
+<h3 id="s6-3">几种 processor</h3>
+<p><code>engine_type</code> 决定由哪个 processor 来跑这个引擎（<a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors">searx/search/processors/</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>engine_type</th>
+<th>做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>online</code></td>
+<td>绝大多数引擎：发 HTTP 请求，解析响应</td>
+</tr>
+<tr>
+<td><code>offline</code></td>
+<td>不联网，比如查本地数据库或命令</td>
+</tr>
+<tr>
+<td><code>online_dictionary</code>、<code>online_currency</code>、<code>online_url_search</code></td>
+<td>先判断查询是否像“翻译”“汇率”“URL”，不像就不发请求</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s6-4">语言和地区：traits</h3>
+<p>每个上游对语言、地区的写法都不一样（<code>zh-CN</code>、<code>zh-hans</code>、<code>cn</code>……）。SearXNG 用离线脚本抓各引擎支持的语言列表，生成 <code>engine_traits.json</code>；运行时引擎调用 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/enginelib/traits.py#L87">traits.get_language</a> / <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/enginelib/traits.py#L103">get_region</a> 把用户的 <code>searxng_locale</code> 翻译成自己的写法。更新脚本在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searxng_extra/update/update_engine_traits.py">searxng_extra/update/</a>。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解</div><p>引擎坏掉最常见的原因是上游改了页面或接口，不是 SearXNG 的 bug。修引擎的 PR 基本都是改 <code>response()</code> 里的 XPath / JSON 路径，或者 <code>request()</code> 里的参数，比如这个 commit 的 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/seznam.py">seznam</a> 加了 <code>noredirect=1</code>。</p>
+</div>
+<h2 id="s7">网络层：冒充浏览器的连接池</h2>
+<h3 id="s7-1">难点</h3>
+<p>很多上游会根据 TLS 和 HTTP/2 的握手特征（俗称 TLS 指纹）识别非浏览器客户端，直接返回验证码或拒绝。另外每个引擎可能要走不同的代理、出口 IP、HTTP 版本，而几十个线程同时发请求，又不能每个都开一套事件循环。</p>
+<h3 id="s7-2">原理</h3>
+
+<figure class="flow"><div class="flow-head">引擎线程怎么发出 HTTP 请求<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;引擎线程怎么发出 HTTP 请求&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;th&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;引擎线程&quot;, &quot;s&quot;: &quot;searx.network.get()&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tl&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;线程本地变量&quot;, &quot;s&quot;: &quot;网络名 · 超时&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;loop&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;共享事件循环&quot;, &quot;s&quot;: &quot;单独一个线程&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;net&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Network&quot;, &quot;s&quot;: &quot;每个引擎一个&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;cli&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;curl_cffi 会话&quot;, &quot;s&quot;: &quot;impersonate=chrome&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;up&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;上游&quot;, &quot;s&quot;: &quot;可经代理 / Tor&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;th&quot;, &quot;b&quot;: &quot;loop&quot;, &quot;t&quot;: &quot;协程&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;th&quot;, &quot;b&quot;: &quot;tl&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;loop&quot;, &quot;b&quot;: &quot;net&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;net&quot;, &quot;b&quot;: &quot;cli&quot;, &quot;t&quot;: &quot;复用&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cli&quot;, &quot;b&quot;: &quot;up&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: true, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 230.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 150.0}}"></div><figcaption>同步接口 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/__init__.py#L94">network.request</a> 把协程交给共享的事件循环（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/client.py#L116">client.init</a> 起的 <code>asyncio_loop</code> 线程），再用剩余超时等结果。<code>Network</code> 按引擎名建立（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/network.py#L337">network.initialize</a>），客户端在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/client.py#L64">new_client</a> 里创建，默认 <code>impersonate=&quot;chrome&quot;</code>。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>关键点</th>
+<th>说明</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>冒充 Chrome</td>
+<td>用 <code>curl_cffi</code> 发请求，默认模仿 Chrome 的 TLS / HTTP2 指纹；可设 <code>impersonate: none</code> 关掉</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/client.py#L19-L20">DEFAULT_IMPERSONATE</a></td>
+</tr>
+<tr>
+<td>每个引擎一个 Network</td>
+<td>引擎可以在配置里写 <code>network:</code>，设置代理、出口地址、重试、HTTP/2、连接数</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/network.py#L49">Network</a></td>
+</tr>
+<tr>
+<td>代理和出口 IP 轮换</td>
+<td>多个代理或本地地址时按轮询使用</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/network.py#L151">get_proxy_cycles</a></td>
+</tr>
+<tr>
+<td>Tor</td>
+<td>代理都是 <code>socks5h://</code> 时，先确认确实走了 Tor</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/network.py#L181">check_tor_proxy</a></td>
+</tr>
+<tr>
+<td>超时随线程走</td>
+<td>processor 把截止时间写进线程本地变量，每个请求按剩余时间等待</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/__init__.py#L40">set_timeout_for_thread</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout info"><div class="callout-title">历史</div><p>网络层在 2026-09-03 从 httpx 迁到了 <code>curl_cffi</code>（commit <code>be836e61</code> “[mod] network: migrate to curl_cffi”，经 GitHub API 核实）。网上旧文档和旧 issue 里提到的 httpx、<code>HTTPX</code> 配置项，在这个版本里已经不适用。</p>
+</div>
+<h2 id="s8">结果合并与排序</h2>
+<h3 id="s8-1">结果汇到哪里</h3>
+<p>所有引擎线程都往同一个 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L53">ResultContainer</a> 写。<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L82">extend()</a> 把每条结果按类型分流：普通结果、答案（answer）、建议（suggestion）、纠错（correction）、信息框（infobox）、以及给下一页用的 <code>engine_data</code>。每条结果写入前都要先过插件的 <code>on_result</code> 钩子，插件返回 <code>False</code> 就丢掉这条。</p>
+<h3 id="s8-2">什么算同一条结果</h3>
+<p>普通结果用哈希判重（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/result_types/_base.py#L317">MainResult.<strong>hash</strong></a>）：<strong>模板相同、URL 去掉协议后相同（http 和 https 算一条）、图片地址相同</strong>。判为重复时，<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L334">merge_two_main_results</a> 把两条合并（保留更长的内容等），并把这次出现的名次追加到 <code>positions</code>。</p>
+<h3 id="s8-3">怎么打分</h3>
+<p>打分在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L17">calculate_score</a>，规则很短：</p>
+<ul>
+<li><code>weight</code> = 所有返回过这条结果的引擎的权重相乘（默认 1.0），再乘以出现的次数；</li>
+<li><code>score</code> = 对每次出现的名次求和 <code>weight / position</code>；</li>
+<li>插件可以把结果标为 <code>high</code> 优先级（每次出现加满 <code>weight</code>，不除名次）或 <code>low</code>（得 0 分）。</li>
+</ul>
+<p>也就是说：<strong>被越多引擎返回、名次越靠前，分越高</strong>，而且“多个引擎都返回”的效果是乘法的。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 三条结果怎么排序（数字由公式计算得出）</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;引擎 A&quot;, &quot;s&quot;: &quot;1. X   2. Y&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;引擎 B&quot;, &quot;s&quot;: &quot;1. Z   3. X&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;x&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;结果 X&quot;, &quot;s&quot;: &quot;A#1 · B#3&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;z&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;结果 Z&quot;, &quot;s&quot;: &quot;B#1&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;y&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;结果 Y&quot;, &quot;s&quot;: &quot;A#2&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;out&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;排序&quot;, &quot;s&quot;: &quot;X · Z · Y&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;x&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;x&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;z&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;y&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;x&quot;, &quot;b&quot;: &quot;out&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;z&quot;, &quot;b&quot;: &quot;out&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;y&quot;, &quot;b&quot;: &quot;out&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 170.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="a,b,x"><div class="step-title">1. 合并</div><p>X 被 A（第 1 名）和 B（第 3 名）都返回，URL 相同，合并成一条：<code>positions = [1, 3]</code>，<code>engines = {A, B}</code>。</p>
+</div><div class="step" data-hl="x"><div class="step-title">2. 算 X 的分</div><p><code>weight = 1.0 × 1.0 × 2 = 2.0</code>；<code>score = 2/1 + 2/3 ≈ 2.667</code>。</p>
+</div><div class="step" data-hl="z,y"><div class="step-title">3. 算 Z 和 Y</div><p>Z 只出现一次，第 1 名：<code>weight = 1</code>，<code>score = 1/1 = 1.0</code>。Y 只出现一次，第 2 名：<code>score = 1/2 = 0.5</code>。</p>
+</div><div class="step" data-hl="x,z,y,out"><div class="step-title">4. 排序</div><p>按分数降序：X（2.667）、Z（1.0）、Y（0.5）。如果把引擎 B 的 <code>weight</code> 设成 2，X 的分会变成 <code>4/1 + 4/3 ≈ 5.333</code>。</p>
+</div></div></div>
+<h3 id="s8-4">第二轮：按类型聚拢</h3>
+<p>只按分数排，图片、视频、普通网页会交错出现。<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L193">get_ordered_results</a> 再做一轮：同一分类、同一模板（有无缩略图也算区别）的结果，在 20 个位置以内会被往前聚到一起，每组最多再吸收 8 条。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解</div><p><code>weight</code> 是在<strong>结果层面</strong>按引擎相乘的，不是“引擎可信度”的加权平均。给一个引擎设很大的权重，会让它独有的结果和它参与的重复结果都大幅靠前，调之前最好先在测试实例里看效果。</p>
+</div>
+<h2 id="s9">插件、答题器与输出</h2>
+<h3 id="s9-1">插件的三个钩子</h3>
+<p>插件是一个继承 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/_core.py#L68">Plugin</a> 的类，在 <code>settings.yml</code> 的 <code>plugins:</code> 下按类路径开关（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml#L217-L247">默认列表</a>）。用户也可以在偏好页逐个开关。</p>
+
+<figure class="flow"><div class="flow-head">插件挂在搜索的哪里<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;插件挂在搜索的哪里&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;pre&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;pre_search&quot;, &quot;s&quot;: &quot;返回 False 就不搜&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;run&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;引擎并发搜索&quot;, &quot;s&quot;: &quot;Search.search()&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;onr&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;on_result&quot;, &quot;s&quot;: &quot;逐条过滤或改写&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;post&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;post_search&quot;, &quot;s&quot;: &quot;补充结果&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;out&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;输出&quot;, &quot;s&quot;: &quot;HTML/JSON/CSV/RSS&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;pre&quot;, &quot;b&quot;: &quot;run&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;run&quot;, &quot;b&quot;: &quot;onr&quot;, &quot;t&quot;: &quot;每条结果&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;run&quot;, &quot;b&quot;: &quot;post&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;post&quot;, &quot;b&quot;: &quot;out&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 160.0}}"></div><figcaption>调度在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L203">SearchWithPlugins.search</a>；三个钩子的分发在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/_core.py#L253">pre_search</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/_core.py#L267">on_result</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/_core.py#L282">post_search</a>。任何一个插件返回 <code>False</code>，后面的插件就不再执行。</figcaption></figure>
+<p>几个内置插件正好展示了三种钩子的用法：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>插件</th>
+<th>钩子</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/hostnames.py">hostnames</a></td>
+<td><code>on_result</code></td>
+<td>按正则改写域名（比如 YouTube → Invidious）、删除某些站点、提高某些站点的优先级</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/tracker_url_remover.py">tracker_url_remover</a></td>
+<td><code>on_result</code></td>
+<td>去掉链接里的跟踪参数</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/calculator.py">calculator</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/unit_converter.py">unit_converter</a></td>
+<td><code>post_search</code></td>
+<td>查询像算式或单位换算时补一个答案</td>
+</tr>
+<tr>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/self_info.py">self_info</a></td>
+<td><code>post_search</code></td>
+<td>搜“ip”“user agent”时显示你自己的信息</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s9-2">答题器</h3>
+<p>答题器（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/answerers/_core.py#L142">AnswerStorage.ask</a>）比插件更早：按查询的第一个关键词匹配，命中就直接给答案，<strong>完全不查引擎</strong>。例子是 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/answerers/random.py">random</a>（随机数、UUID）和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/answerers/statistics.py">statistics</a>（平均值、求和）。</p>
+<h3 id="s9-3">四种输出</h3>
+<p><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_defaults.py#L24">OUTPUT_FORMATS</a> 是 <code>html</code>、<code>csv</code>、<code>json</code>、<code>rss</code>，每个实例在 <code>search.formats</code> 里决定开放哪几种。JSON 由 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webutils.py#L161">get_json_response</a> 生成，CSV 由 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webutils.py#L112">write_csv_response</a> 生成；HTML 用 Jinja 模板 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/templates/simple/results.html">results.html</a> 渲染，每种结果模板在 <a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/templates/simple/result_templates">result_templates/</a>。前端主题的源码在 <a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/client/simple">client/simple</a>（TypeScript + Less，Vite 构建），产物提交在 <code>searx/static/themes/simple/</code>。</p>
+<h2 id="s10">隐私与防滥用</h2>
+<h3 id="s10-1">“不追踪”落在哪几处代码</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>措施</th>
+<th>做法</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>不保存用户</td>
+<td>没有账号和服务端会话；偏好在 cookie 或 URL 里</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L482">pre_request</a></td>
+</tr>
+<tr>
+<td>上游看不到你</td>
+<td>请求由实例发出；上游只看到实例的 IP 和冒充的浏览器指纹</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/online.py#L167">_send_http_request</a></td>
+</tr>
+<tr>
+<td>不泄露来源</td>
+<td>全站 <code>Referrer-Policy: no-referrer</code>，结果链接带 <code>rel=&quot;noreferrer&quot;</code></td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml#L118">settings.yml</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/templates/simple/macros.html#L9">macros.html</a></td>
+</tr>
+<tr>
+<td>图片代理</td>
+<td>开启后缩略图经实例转发；URL 带 HMAC 签名，防止被当成任意代理</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L297">image_proxify</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1016">image_proxy</a></td>
+</tr>
+<tr>
+<td>去跟踪参数</td>
+<td>结果链接里的 utm 等跟踪参数被删掉</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/tracker_url_remover.py">tracker_url_remover</a></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s10-2">limiter：挡住把实例当免费 API 的机器人</h3>
+<p>公开实例的大敌是脚本把它当免费搜索 API 刷，结果是实例的 IP 被上游封掉，所有人都用不了。limiter 是一个 <code>before_request</code> 钩子，规则在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.py#L147">filter_request</a>：</p>
+
+<figure class="flow"><div class="flow-head">limiter 的判断顺序<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;limiter 的判断顺序&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;req&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;请求&quot;, &quot;s&quot;: &quot;真实 IP（信任代理后）&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pass&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;放行名单&quot;, &quot;s&quot;: &quot;命中直接放行&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;block&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;拦截名单&quot;, &quot;s&quot;: &quot;命中返回 429&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ua&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;所有请求&quot;, &quot;s&quot;: &quot;检查 User-Agent&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hdr&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;/search 请求&quot;, &quot;s&quot;: &quot;检查各请求头&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ip&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;ip_limit&quot;, &quot;s&quot;: &quot;Valkey 计数&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ok&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;进入 Flask&quot;, &quot;s&quot;: &quot;&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;req&quot;, &quot;b&quot;: &quot;pass&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pass&quot;, &quot;b&quot;: &quot;block&quot;, &quot;t&quot;: &quot;未命中&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;block&quot;, &quot;b&quot;: &quot;ua&quot;, &quot;t&quot;: &quot;未命中&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ua&quot;, &quot;b&quot;: &quot;hdr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hdr&quot;, &quot;b&quot;: &quot;ip&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ip&quot;, &quot;b&quot;: &quot;ok&quot;, &quot;t&quot;: &quot;未超限&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 215.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 140.0}}"></div><figcaption>按顺序逐项检查，任何一项返回响应就直接拦下。请求头检查在 <a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/botdetection">botdetection/</a> 下各模块；计数在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/botdetection/ip_limit.py#L91">ip_limit</a>：20 秒内超过 15 次、或 10 分钟内超过 150 次就拦（可疑 IP 的阈值更低）。配置在 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.toml">limiter.toml</a>。</figcaption></figure>
+<p>几个关键点：</p>
+<ul>
+<li><strong>limiter 依赖 Valkey</strong>（Redis 的开源分支）来跨进程计数。没有 Valkey 时 <code>limiter: true</code> 不会生效；<code>public_instance: true</code> 时直接拒绝启动（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.py#L222">limiter.initialize</a>）。</li>
+<li><strong>link_token</strong>：公开实例会自动打开。页面里嵌一个 CSS 链接，真实浏览器会去请求它，脚本通常不会；没请求过的 IP 被视为可疑，适用更低的阈值（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/botdetection/link_token.py#L73">is_suspicious</a>）。</li>
+<li><strong>信任的反向代理</strong>：只有来自 <code>trusted_proxies</code> 的请求，才会从 <code>X-Forwarded-For</code> 取真实 IP。实例放在 nginx 后面却没配置，所有用户会被当成同一个 IP，一起被限流。</li>
+</ul>
+<h2 id="s11">端到端：一次 <code>!gh vllm</code> 的完整路径</h2>
+<p>把前面的组件串起来。用户在搜索框输入 <code>!gh vllm</code> 并回车：</p>
+
+<figure class="flow"><div class="flow-head">一次查询的 9 步<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一次查询的 9 步&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;s1&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;1 反向代理&quot;, &quot;s&quot;: &quot;转发到 granian&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s2&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;2 limiter&quot;, &quot;s&quot;: &quot;放行&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s3&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;3 pre_request&quot;, &quot;s&quot;: &quot;cookie → 偏好&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s4&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;4 解析查询&quot;, &quot;s&quot;: &quot;!gh → github 引擎&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s5&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;5 pre_search&quot;, &quot;s&quot;: &quot;插件放行&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s6&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;6 线程 + 请求&quot;, &quot;s&quot;: &quot;api.github.com&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s7&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;7 response()&quot;, &quot;s&quot;: &quot;JSON → 结果&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s8&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;8 合并 · 打分&quot;, &quot;s&quot;: &quot;on_result 过滤&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s9&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;9 渲染&quot;, &quot;s&quot;: &quot;results.html&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;s1&quot;, &quot;b&quot;: &quot;s2&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s2&quot;, &quot;b&quot;: &quot;s3&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s3&quot;, &quot;b&quot;: &quot;s4&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s4&quot;, &quot;b&quot;: &quot;s5&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s5&quot;, &quot;b&quot;: &quot;s6&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s6&quot;, &quot;b&quot;: &quot;s7&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: true, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s7&quot;, &quot;b&quot;: &quot;s8&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s8&quot;, &quot;b&quot;: &quot;s9&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 176.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 150.0}}"></div><figcaption>全部在这一个仓库里完成，没有闭源部分；唯一的外部系统是上游（这里是 GitHub 的搜索 API）。耗时主要在第 6 步，页面响应头里的 <code>Server-Timing</code> 会列出每个引擎的耗时（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L554">post_request</a>）。</figcaption></figure>
+<ol>
+<li>反向代理把请求交给 granian，<code>ProxyFix</code> 还原真实 IP。</li>
+<li>limiter（如果开了）检查名单、请求头和 IP 计数。</li>
+<li><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L482">pre_request</a> 从 cookie 和参数组出 <code>Preferences</code>，算出启用的插件。</li>
+<li><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L641">search()</a> 调 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webadapter.py#L221">get_search_query_from_webapp</a>：<code>!gh</code> 被 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L178">BangParser</a> 识别为 GitHub 引擎的 shortcut（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml#L1153-L1155">settings.yml</a>），查询词剩下 <code>vllm</code>。</li>
+<li><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L203">SearchWithPlugins.search</a> 先跑插件的 <code>pre_search</code>。</li>
+<li>不是外部 bang，答题器没命中，于是 <code>search_standard</code>：为 github 引擎起一个线程，<code>github.request()</code> 填好 URL，网络层用冒充 Chrome 的 <code>curl_cffi</code> 会话发出请求。</li>
+<li><code>github.response()</code> 把 JSON 转成 <code>packages.html</code> 模板的结果。</li>
+<li>每条结果过插件的 <code>on_result</code>，进入 <code>ResultContainer</code> 合并、打分；<code>post_search</code> 补充答案。</li>
+<li>按 <code>format</code> 输出：这里是 HTML，用 <code>results.html</code> 渲染。</li>
+</ol>
+<p>如果是不带 bang 的普通查询，第 6 步会同时起十几个线程（默认 general 分类下启用的引擎），第 8 步的去重和打分才真正发挥作用。</p>
+<h2 id="s12">部署形态与配置</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>怎么跑</th>
+<th>要注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>容器（官方推荐之一）</td>
+<td>镜像 <code>searxng/searxng</code>，入口脚本用 granian 启动 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/container/Dockerfile">Dockerfile</a></td>
+<td>配置目录挂到 <code>/etc/searxng</code>；首次启动会生成 <code>settings.yml</code></td>
+</tr>
+<tr>
+<td>脚本安装</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/utils/searxng.sh">utils/searxng.sh</a> 装到系统，配 uwsgi 或 granian + nginx</td>
+<td>适合长期运行的公开实例</td>
+</tr>
+<tr>
+<td>开发</td>
+<td><code>make install</code> 建 venv，<code>make run</code> 启动开发服务器</td>
+<td>见下一章</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>个人或小团队实例的最小配置</strong>：<code>use_default_settings: true</code>，改 <code>secret_key</code>，<code>limiter: false</code>，监听 <code>127.0.0.1</code>，需要给脚本用就在 <code>search.formats</code> 里加 <code>json</code>。</p>
+
+<div class="callout ok"><div class="callout-title">一个真实例子：给本地大模型当搜索工具</div><p>LatteCrew 在 RTX 5090 机器上就是这样用的：容器只映射到 <code>127.0.0.1:8888</code>，<code>formats: [html, json]</code>，<code>limiter: false</code>，<code>safe_search: 1</code>。聊天机器人的 <code>web_search</code> 工具请求 <code>/search?q=…&amp;format=json</code>，从 <code>results</code> 里取标题、链接和 <code>content</code> 摘要。实测一次查询返回 37 条结果（主要来自 Brave 和 Google）；DuckDuckGo 当时返回验证码，被记为无响应引擎（JSON 里的 <code>unresponsive_engines</code>），其他引擎不受影响，这正是上面“挂起”机制的效果。</p>
+</div>
+<p><strong>扩展规模时</strong>：开多个 granian worker 需要注意，挂起状态和部分缓存是进程内的（见搜索调度一章）；跨进程共享的只有 Valkey 里的限流计数，以及 SQLite 文件里的缓存（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/cache.py#L181">ExpireCacheSQLite</a>）。</p>
+<h2 id="s13">开源许可证</h2>
+
+<div class="callout warn"><div class="callout-title">注意 · 不是法律意见</div><p>以下是对许可证文本的通俗说明，涉及商业部署请咨询律师。</p>
+</div>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>全部 Python 代码、模板、主题</td>
+<td>AGPL-3.0-or-later</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/LICENSE">LICENSE</a>；每个源文件头部的 <code>SPDX-License-Identifier</code>；<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/README.rst">README</a></td>
+</tr>
+<tr>
+<td>Python 依赖</td>
+<td>各自的许可证（Flask BSD、curl_cffi MIT 等）</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/requirements.txt">requirements.txt</a></td>
+</tr>
+<tr>
+<td>前端 npm 依赖</td>
+<td>各自的许可证</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/client/simple/package.json">package.json</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>AGPL 的核心</strong>：和 GPL 一样，分发修改后的程序时要提供源码；多出来的一条是<strong>网络条款</strong>（第 13 条）：如果你修改了程序，并通过网络让别人使用它，就要让这些用户能拿到你修改后的源码。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>可以吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自己或家里用，不改代码</td>
+<td>可以</td>
+<td>不需要做什么</td>
+</tr>
+<tr>
+<td>改了代码，只自己用</td>
+<td>可以</td>
+<td>不需要公开</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>可以</td>
+<td>代码以 AGPL 贡献；遵守 AI 政策</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>可以</td>
+<td>保持 AGPL，保留版权和许可证声明</td>
+</tr>
+<tr>
+<td>改了代码，开放给别人用（包括团队内网服务）</td>
+<td>可以</td>
+<td>要让使用者能获取你修改后的完整源码（页面上通常放一个源码链接，SearXNG 的界面本身就有这个位置：<code>brand.public_instances</code> 旁的 <code>git_url</code> 设置）</td>
+</tr>
+<tr>
+<td>把它嵌进闭源产品一起分发</td>
+<td>通常不行</td>
+<td>整个衍生作品需要以 AGPL 开源</td>
+</tr>
+<tr>
+<td>只通过 HTTP 调用一个实例的 JSON 接口</td>
+<td>可以</td>
+<td>你的程序没有包含 SearXNG 的代码，一般不受 AGPL 约束</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>历史</strong>：许可证一直是 AGPL v3 或更高版本。2013 年 searx 时期的 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/LICENSE">LICENSE</a> 文件只有一段声明（commit <code>554f3a95</code>），2015 年换成完整的 AGPLv3 文本（commit <code>a905e4e7</code>，“full AGPLv3+ license according to #382”）。这两条都经 GitHub API 核实。SearXNG 仓库创建于 2021-04-12，保留了 searx 的完整提交历史。</p>
+<p><strong>例外</strong>：仓库里没有单独的商标、图标或 CLA 条款（在 README、CONTRIBUTING 和 LICENSE 中没有找到）；“SearXNG”名字和 logo 的使用没有书面说明，公开 fork 改名是更稳妥的做法。</p>
+<h2 id="s14">贡献与定制</h2>
+<h3 id="s14-1">开发环境</h3>
+<p>照抄自 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/CONTRIBUTING.rst">CONTRIBUTING.rst</a> 和 <a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/Makefile">Makefile</a>：</p>
+<pre><code class="language-bash">git clone https://github.com/searxng/searxng.git &amp;&amp; cd searxng
+make install      # 建 Python venv，装依赖（./manage pyenv.install）
+make run          # 启动开发服务器（./manage webapp.run）
+make test         # yamllint、black、pyright、pylint、单元测试、robot 测试……
+make format       # 格式化 Python 和 shell
+make themes       # 构建前端主题（需要 Node）
+</code></pre>
+<p>也可以直接用 Flask 的开发服务器：<code>flask --app searx.webapp run --debug --reload --host 127.0.0.1 --port 8888</code>（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1333">run()</a> 的文档里给出）。</p>
+<h3 id="s14-2">项目的规矩</h3>
+<ul>
+<li><strong>PR 模板</strong>：说明做了什么、怎么在本地测试、关联的 issue，并勾选遵守 AI 政策（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/.github/PULL_REQUEST_TEMPLATE.md">PULL_REQUEST_TEMPLATE.md</a>）。</li>
+<li><strong>AI 政策</strong>（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/AI_POLICY.rst">AI_POLICY.rst</a>）很严格：使用 AI 必须声明工具和程度；提交者必须完全理解代码；AI 不能是 PR 的主要作者；issue 和 PR 描述必须由人写；明显的 AI 生成垃圾会被永久拉黑。</li>
+<li><strong>大改动先开 issue 讨论</strong>；commit 信息用现在时、祈使语气，并带 <code>[fix]</code>、<code>[mod]</code>、<code>[upd]</code> 这类前缀（从提交历史可以看出）。</li>
+<li>翻译走 Weblate，不要直接改 <code>translations/</code>。</li>
+</ul>
+<h3 id="s14-3">适合入手的方向</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>方向</th>
+<th>为什么适合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>修复坏掉的引擎</td>
+<td>范围小、好验证；上游一改版就有人需要，改动通常只在一个文件</td>
+</tr>
+<tr>
+<td>新增引擎</td>
+<td>有现成的最小例子（<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/github.py">github.py</a>），或者只用 <code>xpath</code> / <code>json_engine</code> 写配置</td>
+</tr>
+<tr>
+<td>新增结果类型或插件</td>
+<td>有清晰的扩展点（<a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/result_types">result_types/</a>、<a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins">plugins/</a>）</td>
+</tr>
+<tr>
+<td>更新数据</td>
+<td><code>searxng_extra/update/</code> 下的脚本重新生成语言、货币、bang 数据</td>
+</tr>
+</tbody>
+</table></div>
+<p>需要避开的：依赖某个上游私有接口、违反其服务条款的引擎；会在服务端保存用户数据的功能（和项目目标冲突）。</p>
+<h3 id="s14-4">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">按改动由小到大<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;按改动由小到大&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;cfg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;只改配置&quot;, &quot;s&quot;: &quot;引擎开关 · 权重&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;plg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写插件&quot;, &quot;s&quot;: &quot;改写 · 过滤结果&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;eng&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;写引擎&quot;, &quot;s&quot;: &quot;接入新数据源&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fork&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;fork 改核心&quot;, &quot;s&quot;: &quot;调度 · 打分 · UI&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;api&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;当 JSON API 用&quot;, &quot;s&quot;: &quot;脚本 / LLM 工具&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;cfg&quot;, &quot;b&quot;: &quot;plg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;plg&quot;, &quot;b&quot;: &quot;eng&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;eng&quot;, &quot;b&quot;: &quot;fork&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;cfg&quot;, &quot;b&quot;: &quot;api&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 166.0}}"></div><figcaption>越往右，跟上游合并的成本越高。前三种都可以不改核心代码：插件和引擎各是一个 Python 文件，用 <code>settings.yml</code> 启用。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>路线</th>
+<th>能做到</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只改配置</td>
+<td>选引擎、调权重、改超时、走代理、改写域名（<code>hostnames</code>）、开 JSON</td>
+<td>几乎没有，升级无痛</td>
+</tr>
+<tr>
+<td>写插件</td>
+<td>任意过滤、改写、补充结果</td>
+<td>一个文件；插件 API 偶有变动</td>
+</tr>
+<tr>
+<td>写引擎</td>
+<td>接入公司内部搜索、知识库、某个站点</td>
+<td>一个文件；上游改版要跟着修</td>
+</tr>
+<tr>
+<td>fork 改核心</td>
+<td>改调度、打分、界面</td>
+<td>要持续合并上游；对外提供服务时按 AGPL 公开</td>
+</tr>
+<tr>
+<td>当 JSON API 用</td>
+<td>给脚本或大模型当搜索工具</td>
+<td>实例要开 <code>json</code> 格式；注意上游限流</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s15">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Flask 应用、路由、初始化</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py">webapp.py</a>：<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L1370">init</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L482">pre_request</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webapp.py#L641">search</a></td>
+</tr>
+<tr>
+<td>默认配置</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings.yml">settings.yml</a></td>
+</tr>
+<tr>
+<td>配置加载与默认值</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_loader.py">settings_loader.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/settings_defaults.py">settings_defaults.py</a></td>
+</tr>
+<tr>
+<td>偏好</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/preferences.py#L391">preferences.py</a></td>
+</tr>
+<tr>
+<td>查询语法</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/query.py#L250">query.py</a></td>
+</tr>
+<tr>
+<td>组装 SearchQuery</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webadapter.py#L221">webadapter.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/models.py#L28">search/models.py</a></td>
+</tr>
+<tr>
+<td>搜索调度</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/__init__.py#L47">search/<strong>init</strong>.py</a></td>
+</tr>
+<tr>
+<td>processor 与挂起</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/abstract.py#L116">abstract.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/search/processors/online.py#L121">online.py</a></td>
+</tr>
+<tr>
+<td>引擎加载</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/engines/__init__.py#L90">engines/<strong>init</strong>.py</a></td>
+</tr>
+<tr>
+<td>引擎语言特性</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/enginelib/traits.py#L37">enginelib/traits.py</a></td>
+</tr>
+<tr>
+<td>网络层</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/__init__.py#L94">network/<strong>init</strong>.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/network.py#L49">network.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/network/client.py#L64">client.py</a></td>
+</tr>
+<tr>
+<td>结果容器、合并、打分</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L53">results.py</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/results.py#L17">calculate_score</a></td>
+</tr>
+<tr>
+<td>结果类型</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/result_types/_base.py#L111">result_types/_base.py</a></td>
+</tr>
+<tr>
+<td>插件</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/plugins/_core.py#L192">plugins/_core.py</a></td>
+</tr>
+<tr>
+<td>答题器</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/answerers/_core.py#L86">answerers/_core.py</a></td>
+</tr>
+<tr>
+<td>外部 bang</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/external_bang.py#L93">external_bang.py</a></td>
+</tr>
+<tr>
+<td>limiter 与机器人检测</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/limiter.py#L147">limiter.py</a>、<a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/botdetection">botdetection/</a></td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/cache.py#L181">cache.py</a></td>
+</tr>
+<tr>
+<td>输出</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/webutils.py#L161">webutils.py</a>、<a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searx/templates/simple">templates/simple/</a></td>
+</tr>
+<tr>
+<td>前端主题源码</td>
+<td><a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/client/simple">client/simple/</a></td>
+</tr>
+<tr>
+<td>部署</td>
+<td><a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/container/Dockerfile">container/</a>、<a class="src" href="https://github.com/searxng/searxng/blob/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/utils/searxng.sh">utils/searxng.sh</a></td>
+</tr>
+<tr>
+<td>数据更新脚本</td>
+<td><a class="src" href="https://github.com/searxng/searxng/tree/3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf/searxng_extra/update">searxng_extra/update/</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

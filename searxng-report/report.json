@@ -1,0 +1,14 @@
+{
+  "title": "SearXNG：从原理到源码",
+  "kicker": "Source-level guide · searxng/searxng",
+  "lede": "一份给想读懂、贡献或定制 SearXNG 的工程师的导读：一个不追踪用户的元搜索引擎，怎样把一次查询同时发给几十个搜索引擎、在 3 秒内收回结果、去重打分，再保护好用户和实例本身。",
+  "brand": "SearXNG 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {
+    "sx": {"repo": "searxng/searxng", "sha": "3a3dd15bfafcb645a1b45c2c6c0798a8f786aaaf", "local": "~/development/searxng-report/searxng"}
+  },
+  "quality": {"flows": 10, "analogies": 2, "links": 70}
+}

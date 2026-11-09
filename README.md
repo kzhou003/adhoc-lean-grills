@@ -18,6 +18,7 @@
 | `egglog-report/` | egglog 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/egglog-report/report.html) |
 | `opensandbox-report/` | OpenSandbox 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/opensandbox-report/report.html) |
 | `tailscale-report/` | Tailscale 客户端源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/tailscale-report/report.html) |
+| `searxng-report/` | SearXNG 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/searxng-report/report.html) |
 
 ## 添加新笔记
 
