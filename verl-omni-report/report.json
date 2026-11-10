@@ -1,0 +1,18 @@
+{
+  "title": "VeRL-Omni：多模态生成式强化学习源码导读",
+  "kicker": "Code wiki · verl-project/verl-omni",
+  "lede": "面向准备贡献或定制 VeRL-Omni 的工程师：从一条 Diffusion V1 FlowGRPO 训练迭代出发，解释 Hydra、Ray、TransferQueue、rollout、奖励、训练 worker 与模型适配器怎样协作。",
+  "brand": "VeRL-Omni 源码导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {
+    "vo": {
+      "repo": "verl-project/verl-omni",
+      "sha": "d65b2017fe09fc30a60f8aea70b445b604b5db45",
+      "local": "~/development/verl-omni"
+    }
+  },
+  "quality": {"flows": 8, "analogies": 2, "links": 60}
+}

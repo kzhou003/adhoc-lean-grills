@@ -1,0 +1,1058 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeRL-Omni：多模态生成式强化学习源码导读</title>
+<meta name="description" content="面向准备贡献或定制 VeRL-Omni 的工程师：从一条 Diffusion V1 FlowGRPO 训练迭代出发，解释 Hydra、Ray、TransferQueue、rollout、奖励、训练 worker 与模型适配器怎样协作。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:VeRL-Omni：多模态生成式强化学习源码导读" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">VeRL-Omni 源码导读</a>
+
+<a class="nav-l2" href="#s1">怎么读这份导读</a>
+<a class="nav-l2" href="#s2">全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">没有它时的问题</a>
+<a class="nav-l3" href="#s2-2">要求、目标、限制矩阵</a>
+<a class="nav-l2" href="#s3">入口与配置：先决定要启动哪一种训练</a>
+<a class="nav-l3" href="#s3-1">职责与难点</a>
+<a class="nav-l3" href="#s3-2">关键契约</a>
+<a class="nav-l2" href="#s4">V1 trainer：把组完整性和训练生命周期放在 driver</a>
+<a class="nav-l3" href="#s4-1">职责、难点与原理</a>
+<a class="nav-l3" href="#s4-2">契约与连接</a>
+<a class="nav-l2" href="#s5">Rollout 与 TransferQueue：轨迹如何离开推理服务又回到训练</a>
+<a class="nav-l3" href="#s5-1">职责、难点与原理</a>
+<a class="nav-l3" href="#s5-2">关键数据契约</a>
+<a class="nav-l2" href="#s6">Reward：同一套接口容纳本地函数、HTTP 与模型</a>
+<a class="nav-l3" href="#s6-1">职责、难点与原理</a>
+<a class="nav-l3" href="#s6-2">契约与坑</a>
+<a class="nav-l2" href="#s7">优势、策略与 actor worker：从分数变成梯度</a>
+<a class="nav-l3" href="#s7-1">职责、难点与原理</a>
+<a class="nav-l3" href="#s7-2">契约</a>
+<a class="nav-l2" href="#s8">模型 adapter 与 rollout backend：可扩展性放在边缘，而不在 trainer 分叉</a>
+<a class="nav-l3" href="#s8-1">职责、难点与原理</a>
+<a class="nav-l3" href="#s8-2">怎样定制</a>
+<a class="nav-l2" href="#s9">端到端生命周期：Qwen-Image V1 FlowGRPO 的一次迭代</a>
+<a class="nav-l2" href="#s10">部署、运行与观测边界</a>
+<a class="nav-l2" href="#s11">贡献与定制</a>
+<a class="nav-l3" href="#s11-1">真实开发路径</a>
+<a class="nav-l3" href="#s11-2">定制路线</a>
+<a class="nav-l2" href="#s12">开源许可证与第三方边界</a>
+<a class="nav-l2" href="#s13">附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">Code wiki · verl-project/verl-omni</div><h1>VeRL-Omni：多模态生成式强化学习源码导读</h1><p class="lede">面向准备贡献或定制 VeRL-Omni 的工程师：从一条 Diffusion V1 FlowGRPO 训练迭代出发，解释 Hydra、Ray、TransferQueue、rollout、奖励、训练 worker 与模型适配器怎样协作。</p><p class="meta">verl-project/verl-omni @ d65b201</p></header>
+<h2 id="s1">怎么读这份导读</h2>
+<p>这份导读写给第一次进入 VeRL-Omni、却需要改训练配方、接入一个新模型或定位吞吐／显存问题的工程师。它不按目录逐个罗列；主线是一条 <strong>Diffusion V1 + FlowGRPO</strong> 的在线训练迭代，因为这是当前默认路径。读完后，你应能判断某项改动属于配置、pipeline adapter、rollout 服务、reward，还是分布式训练核心。</p>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本与边界</div><ul>
+<li>源码固定为 <code>verl-project/verl-omni</code> @ <code>d65b2017fe09fc30a60f8aea70b445b604b5db45</code>（2026-11-09）。所有源码链接固定到这个提交。</li>
+<li>主干：<code>main_diffusion_v1 → Ray task runner → TransferQueue → agent loop / vLLM-Omni rollout → reward → actor update</code>。入口见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py#L34-L102">run_diffusion_v1</a>。</li>
+<li>VeRL-Omni 不是一个自给自足的训练运行时：它固定依赖 <code>verl</code>、<code>vllm</code> 和 <code>vllm-omni</code>，版本证据见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/pyproject.toml#L30-L64">pyproject.toml 依赖</a>。这些上游仓库的内部实现不在本报告的可审计范围内。</li>
+</ul>
+</div>
+<p>推荐顺序：先读“全景”和“端到端生命周期”，再按你的任务选“配置”“rollout”“奖励”“worker / adapter”。最后两章说明贡献边界与许可证。</p>
+<h2 id="s2">全景：问题、目标、限制</h2>
+<h3 id="s2-1">没有它时的问题</h3>
+<p>生成式多模态 RL 把三种本来就昂贵的工作绑在了一起：采样媒体、打分媒体、更新大模型。图像／视频的 rollout 不像文本 token 流那样轻；同一张 GPU 上同时常驻 actor、推理引擎和 reward model 又容易 OOM。VeRL-Omni 的回答不是单一算法，而是一套可组合的训练运行骨架。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>现实约束</th>
+<th>VeRL-Omni 的处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rollout</td>
+<td>图像、视频、音频的生成延迟高，<code>n</code> 个组内样本必须保留对应关系</td>
+<td>vLLM-Omni rollout + TransferQueue 行记录，按 prompt group 完成采样</td>
+</tr>
+<tr>
+<td>reward</td>
+<td>评分器可能是 Python 函数、HTTP 服务或 GPU 模型，延迟和资源形态不同</td>
+<td><code>OmniRewardLoopManager</code> 统一调度命名／原生／engine reward</td>
+</tr>
+<tr>
+<td>actor update</td>
+<td>FSDP/VeOmni、LoRA、reference policy、不同 diffusion loss 的输入契约不同</td>
+<td>Ray worker group 只暴露 actor 推理和更新接口，adapter／loss registry 吸收差异</td>
+</tr>
+<tr>
+<td>分布式资源</td>
+<td>rollout 和训练可共享 GPU，也可独占 GPU 并异步运行</td>
+<td><code>sync</code> 与 <code>separate_async</code> 两套 V1 生命周期；后者通过 checkpoint engine 同步权重</td>
+</tr>
+</tbody>
+</table></div>
+<p>README 把项目定位为“面向 diffusion 与 omni-modality 的 RL 训练框架”，并明确建立在 <code>verl</code> 之上。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/README.md#L21-L25">README 定位</a> 它支持的模型／算法矩阵不是一个核心引擎的功能开关，而是许多 pipeline adapter 与 recipe 的组合。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/README.md#L89-L210">README 支持矩阵</a></p>
+
+<figure class="flow"><div class="flow-head">VeRL-Omni 的公开系统边界<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;VeRL-Omni 的公开系统边界&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;user&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;训练配方&quot;, &quot;s&quot;: &quot;Hydra 覆盖&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;entry&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Python 入口&quot;, &quot;s&quot;: &quot;main_diffusion_v1&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ray&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Ray 控制器&quot;, &quot;s&quot;: &quot;TaskRunner&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tq&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TransferQueue&quot;, &quot;s&quot;: &quot;轨迹行&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;agent&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Agent loop&quot;, &quot;s&quot;: &quot;每个 prompt&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;roll&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Rollout 服务&quot;, &quot;s&quot;: &quot;vLLM-Omni&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reward&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Reward&quot;, &quot;s&quot;: &quot;函数或模型&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;actor&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Actor worker&quot;, &quot;s&quot;: &quot;FSDP / VeOmni&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;user&quot;, &quot;b&quot;: &quot;entry&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;entry&quot;, &quot;b&quot;: &quot;ray&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ray&quot;, &quot;b&quot;: &quot;tq&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ray:b&quot;, &quot;b&quot;: &quot;agent:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;agent&quot;, &quot;b&quot;: &quot;roll&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;roll:t&quot;, &quot;b&quot;: &quot;tq:b&quot;, &quot;t&quot;: &quot;媒体 / logprob&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;agent&quot;, &quot;b&quot;: &quot;reward&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reward:t&quot;, &quot;b&quot;: &quot;tq:b&quot;, &quot;t&quot;: &quot;score&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tq&quot;, &quot;b&quot;: &quot;actor&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;actor:b&quot;, &quot;b&quot;: &quot;roll:b&quot;, &quot;t&quot;: &quot;权重同步&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 165.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 138.0}}"></div><figcaption>深色节点是此仓库调用、但不在此仓库实现的边界；入口强制初始化 TransferQueue 的证据见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py#L65-L82">main_diffusion_v1.py</a>，rollout registry 见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/workers/rollout/replica.py#L96-L102">replica.py</a>。</figcaption></figure>
+<h3 id="s2-2">要求、目标、限制矩阵</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Diffusion V1</th>
+<th>Omni / AR 路径</th>
+<th>影响贡献者的结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>核心目标</td>
+<td>媒体生成的 online RL；默认 V1</td>
+<td>文本、图像、音频、视频的统一模型训练</td>
+<td>不要把 diffusion 假设硬编码进共享 trainer</td>
+</tr>
+<tr>
+<td>主要数据</td>
+<td><code>DataProto</code> + TransferQueue 的轨迹行</td>
+<td>另一套 omni trainer／dataset 适配</td>
+<td>先选 <code>main_diffusion_v1</code> 还是 <code>main_omni</code></td>
+</tr>
+<tr>
+<td>默认并行</td>
+<td>Ray + FSDP2；rollout 可用 TP / USP</td>
+<td>可选 VeOmni / Megatron 路径</td>
+<td>配置组合需要启动前校验</td>
+</tr>
+<tr>
+<td>显存约束</td>
+<td>sync 模式在采样后让 rollout 休眠／卸载</td>
+<td>依模型和 engine 而变</td>
+<td>生命周期 hook 不能随意挪动</td>
+</tr>
+<tr>
+<td>可扩展点</td>
+<td>model adapter、loss、advantage、reward、agent loop</td>
+<td>dataset transform、omni pipeline、worker</td>
+<td>优先 registry / <code>external_lib</code>，不要 fork trainer</td>
+</tr>
+<tr>
+<td>当前许可证</td>
+<td>Apache-2.0</td>
+<td>Apache-2.0</td>
+<td>模型权重、外部服务另有条款</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout analogy"><div class="callout-title">类比 · 把一次训练看成“共享冷库 + 两个车间”</div><p><code>TransferQueue</code> 像冷库：它保存带身份标签的 rollout 成品，训练车间按组取货，质检车间可以把分数补回同一箱货。rollout 服务是生产车间，actor worker 是加工车间；在 <code>sync</code> 模式，两车间轮流占用同一块厂房，所以采样结束后必须让 rollout 休眠。这个映射对应 <code>TransferQueue</code> 行、<code>ReplayBuffer</code> 和 <code>checkpoint_manager.sleep_replicas()</code>，而不是一个普通 Python 队列。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_sync.py#L43-L68">sync 生命周期</a></p>
+</div>
+<h2 id="s3">入口与配置：先决定要启动哪一种训练</h2>
+<h3 id="s3-1">职责与难点</h3>
+<p>入口的职责是把 Hydra 配置解析成一个可运行、可验证的 Ray 作业；难点是“同样一个 YAML”在不同设备、profiling、trainer mode 和模型后端下并不都有效。<code>main()</code> 会自动识别设备、resolve Hydra、执行通用配置和 attention 一致性验证，然后按 <code>trainer.use_v1</code> 选择 V1 或 deprecated 的 V0。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py#L158-L181">main</a></p>
+<p>V1 runner 在 <code>ray.init()</code> 前强制设置 <code>config.transfer_queue.enable = True</code>，把 <code>TRANSFER_QUEUE_ENABLE=1</code> 放进 Ray runtime environment，再 remote 一个 <code>DiffusionTaskRunnerV1</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py#L34-L102">runner 初始化</a> 这解释了一个容易踩坑的事实：YAML 默认值仍是 <code>false</code>，但 V1 会覆盖它。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L477-L508">TransferQueue 默认配置</a></p>
+
+<figure class="flow"><div class="flow-head">配置从 shell 到 trainer<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;配置从 shell 到 trainer&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;sh&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Recipe shell&quot;, &quot;s&quot;: &quot;Hydra overrides&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;yaml&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;默认 YAML&quot;, &quot;s&quot;: &quot;defaults 合成&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;valid&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;启动校验&quot;, &quot;s&quot;: &quot;config / attention&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;runner&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TaskRunner&quot;, &quot;s&quot;: &quot;Ray remote&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Trainer registry&quot;, &quot;s&quot;: &quot;sync / async&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tq&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;TransferQueue&quot;, &quot;s&quot;: &quot;force enable&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;sh&quot;, &quot;b&quot;: &quot;yaml&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;yaml&quot;, &quot;b&quot;: &quot;valid&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;valid&quot;, &quot;b&quot;: &quot;runner&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;runner&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;runner&quot;, &quot;b&quot;: &quot;tq&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 180.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 145.0}}"></div><figcaption>示例脚本明确调用 V1 入口并设置 <code>trainer.v1.trainer_mode=sync</code>，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/examples/flowgrpo_trainer/qwen_image/run_qwen_image_ocr_lora_v1.sh#L54-L109">Qwen-Image V1 recipe</a>；trainer mode 默认值与 async 限制见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L241-L363">V1 配置</a>。</figcaption></figure>
+<h3 id="s3-2">关键契约</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>作用</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trainer.use_v1</code></td>
+<td>默认 <code>true</code>；设为 <code>false</code> 走 legacy V0</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L241-L245">config</a></td>
+</tr>
+<tr>
+<td><code>trainer.v1.trainer_mode</code></td>
+<td>已注册的 <code>sync</code> 或 <code>separate_async</code></td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L141-L160">trainer registry</a></td>
+</tr>
+<tr>
+<td><code>algorithm.trainer_type</code></td>
+<td><code>policy_gradient</code> 或 <code>direct_preference</code></td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L61-L113">algorithm 配置</a></td>
+</tr>
+<tr>
+<td><code>actor_rollout_ref</code></td>
+<td>actor、rollout、ref、model 的组合配置根</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L42-L58">actor_rollout_ref</a></td>
+</tr>
+<tr>
+<td><code>reward</code></td>
+<td>custom function、named models、资源池选择</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/reward/reward.yaml#L13-L70">reward 配置</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>容易误解：</strong> V1 的 <code>sync</code> 不是“没有 Ray”；它仍使用 Ray 和异步 rollout server，只是不允许 partial rollout，并在一个更新周期内等完整组。V1 文档描述了 sync／separate-async 的差异和 <code>parameter_sync_step</code> 的批大小约束。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/diffusion_v1.md#L52-L58">架构说明</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/diffusion_v1.md#L224-L253">async 约束</a></p>
+<h2 id="s4">V1 trainer：把组完整性和训练生命周期放在 driver</h2>
+<h3 id="s4-1">职责、难点与原理</h3>
+<p><code>PolicyGradientDiffusionTrainerV1</code> 是 V1 的共享 driver。它初始化 replay buffer、计算是否要 reference/reward/teacher policy，并以 lifecycle hook 把“什么时候采样、什么时候 sleep、什么时候同步权重”留给 mode 子类。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L176-L265">V1 base 初始化</a></p>
+<p><code>sync</code> 子类很小，正是设计意图：初始化和每一步结束时同步权重；采样结束后 sleep rollout replicas。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_sync.py#L43-L68">sync hooks</a> <code>separate_async</code> 则要求独立 rollout GPU 和非 naive checkpoint backend。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L291-L303">separate_async 配置约束</a></p>
+
+<figure class="flow"><div class="flow-head">V1 sync 一步的资源时序<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;V1 sync 一步的资源时序&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;feed&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;投递 prompts&quot;, &quot;s&quot;: &quot;driver&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gen&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;生成组&quot;, &quot;s&quot;: &quot;rollout replicas&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;buf&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ReplayBuffer&quot;, &quot;s&quot;: &quot;等完整组&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sleep&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;rollout sleep&quot;, &quot;s&quot;: &quot;释放显存&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;score&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;reward / logprob&quot;, &quot;s&quot;: &quot;driver + workers&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;upd&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;actor update&quot;, &quot;s&quot;: &quot;worker group&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sync&quot;, &quot;c&quot;: 5.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;权重同步&quot;, &quot;s&quot;: &quot;下一轮 rollout&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;feed&quot;, &quot;b&quot;: &quot;gen&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gen&quot;, &quot;b&quot;: &quot;buf&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;buf&quot;, &quot;b&quot;: &quot;sleep&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;buf&quot;, &quot;b&quot;: &quot;score&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;score&quot;, &quot;b&quot;: &quot;upd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;upd&quot;, &quot;b&quot;: &quot;sync&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sync:b&quot;, &quot;b&quot;: &quot;gen:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 168.0, &quot;rh&quot;: 95.0, &quot;nw&quot;: 137.0}}"></div><figcaption><code>fit()</code> 的外层 step、存储清理与日志见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L364-L466">fit</a>；每步先 feed、再 sample／train 的代码在 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L486-L568">step</a>。</figcaption></figure>
+<h3 id="s4-2">契约与连接</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>抽象</th>
+<th>输入 / 输出</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ReplayBuffer</code></td>
+<td>按状态轮询 TransferQueue，返回 <code>KVBatchMeta</code></td>
+<td>它保证训练消费的是完成的 rollout 组；sync 默认轮询 0.05 秒</td>
+</tr>
+<tr>
+<td><code>KVBatchMeta</code></td>
+<td>partition、keys、tags</td>
+<td>是队列行的轻量索引，真正张量仍在队列中</td>
+</tr>
+<tr>
+<td><code>DataProto</code></td>
+<td>从队列 materialize 的训练 batch</td>
+<td>后续 old logprob、ref、advantage、actor 都使用它</td>
+</tr>
+<tr>
+<td><code>parameter_sync_step</code></td>
+<td>一个外层 step 里的 local updates</td>
+<td>async 模式按周期保持／刷新采样策略</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>_build_replay_buffer()</code> 对 sync 使用 <code>ReplayBuffer</code>，对 separate async 使用 <code>ReplayBufferAsync</code>；若未配置轮询时间，sync 选择 0.05 秒、async 选择 2 秒。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L233-L260">_build_replay_buffer</a> <code>step()</code> 又强制 <code>train_batch_size</code> 能被 <code>parameter_sync_step</code> 整除。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L486-L537">step 批大小规则</a></p>
+
+<div class="callout warn"><div class="callout-title">注意 · 容易误解：不能“顺手”重排 rollout 行</div><p>FlowGRPO 的 advantage 依赖同一 prompt 的多个 rollout；direct preference 还依赖 chosen/rejected 成对进入 micro-batch。代码因此会 pad 以适配 DP／mini-batch，再把补行 advantage 置零，并在 whole-group loss 下关闭 shuffle。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1431-L1473">balance 与 padding</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1551-L1594">actor update 分组规则</a></p>
+</div>
+<h2 id="s5">Rollout 与 TransferQueue：轨迹如何离开推理服务又回到训练</h2>
+<h3 id="s5-1">职责、难点与原理</h3>
+<p><code>DiffusionAgentLoopWorkerTQ</code> 把一个 prompt 展开为 <code>rollout.n</code> 个 session；每一个完成的 diffusion 输出被组装成队列行。它用 <code>uid_session_output</code> 作为 row key，保存 prompt ids、生成媒体、可选 rollout logprob、reward score、媒体 metadata 和生成时的 policy step。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L125-L190">_run_prompt</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L209-L309">_write_trajectories_to_tq</a></p>
+<p>难点不是“把 tensor 放进队列”，而是保持 group 原子性、支持失败、支持音视频等不同 artifact，同时避免每个 session 一次 RPC。实现会先并发 session，再按字段签名批量写入；成功／失败会回写 prompt 状态。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L159-L190">组状态</a></p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一个 prompt 的 `n` 次生成如何成为可训练样本</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;prompt&quot;, &quot;s&quot;: &quot;uid + index&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sess&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;n sessions&quot;, &quot;s&quot;: &quot;并发 agent loop&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pipe&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;vLLM-Omni&quot;, &quot;s&quot;: &quot;媒体 + logprob&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;put&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;批量 TQ 写入&quot;, &quot;s&quot;: &quot;uid_i_0&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;done&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;group finished&quot;, &quot;s&quot;: &quot;ReplayBuffer 可见&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fail&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;失败状态&quot;, &quot;s&quot;: &quot;可替换组&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;sess&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sess&quot;, &quot;b&quot;: &quot;pipe&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pipe&quot;, &quot;b&quot;: &quot;put&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;put&quot;, &quot;b&quot;: &quot;done&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sess:b&quot;, &quot;b&quot;: &quot;fail:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 175.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 143.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="p,sess"><div class="step-title">1. 分配确定性种子</div><p>训练 batch 会附加 step-local 的 base seed 和 prompt index。worker 用 <code>prompt_index * n + session_id</code> 派生每次采样的 seed，避免不同 worker chunk 重用随机噪声。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L79-L105">生成参数和 seed</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L140-L155">每个 session 的 seed</a></p>
+</div><div class="step" data-hl="sess,pipe"><div class="step-title">2. 并发生成</div><p>每个 prompt 生成 <code>n</code> 个 session，<code>asyncio.gather()</code> 汇总成功结果和异常；rollout engine 的 registry 以 <code>vllm_omni</code> 名称加载具体 replica。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L133-L184">并发组</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/workers/rollout/replica.py#L50-L102">rollout manager</a></p>
+</div><div class="step" data-hl="put"><div class="step-title">3. 一次写入一组</div><p>同字段的 session 被放入一次 <code>async_kv_batch_put</code>。每行携带 <code>min_global_steps/max_global_steps</code>，供后续 off-policy 统计。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L219-L309">队列行格式</a></p>
+</div><div class="step" data-hl="done"><div class="step-title">4. 完整组可消费</div><p>driver 用 <code>KVBatchMeta</code> materialize 成 <code>DataProto</code>；训练完把 score、advantage、return 回写，日志／dump 后清理这些 keys。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L575-L682">消费和回写</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L443-L450">清理时机</a></p>
+</div></div></div>
+<h3 id="s5-2">关键数据契约</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>谁写入</th>
+<th>谁消费</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>responses</code>、<code>prompts</code></td>
+<td>agent loop</td>
+<td>adapter／actor</td>
+</tr>
+<tr>
+<td><code>rollout_log_probs</code></td>
+<td>rollout（若需要）</td>
+<td>rollout correction 或 loss</td>
+</tr>
+<tr>
+<td><code>rm_scores</code> / reward 信息</td>
+<td>streaming reward 或后续 colocated reward</td>
+<td>advantage、metrics</td>
+</tr>
+<tr>
+<td><code>uid</code>、<code>extra_fields</code>、policy steps</td>
+<td>agent loop</td>
+<td>分组、可观测性、媒体 dump</td>
+</tr>
+<tr>
+<td><code>advantages</code>、<code>returns</code></td>
+<td>trainer</td>
+<td>actor update、最终 dump</td>
+</tr>
+</tbody>
+</table></div>
+<p>从 <code>KVBatchMeta</code> 还原的函数明确说明：张量 batch 可包含 <code>responses</code>、<code>rollout_log_probs</code>、<code>rm_scores</code>、embeds 等，非张量部分含 uid、reward model、data source、extra fields。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/tq_utils.py#L166-L224">diffusion_tq_batch_to_dataproto</a> 写回函数只写指定 fields，避免将不应持久化的 driver 状态塞回队列。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/tq_utils.py#L226-L253">put_dataproto_fields_to_tq</a></p>
+<h2 id="s6">Reward：同一套接口容纳本地函数、HTTP 与模型</h2>
+<h3 id="s6-1">职责、难点与原理</h3>
+<p>奖励层把“生成媒体变成可学习的标量或组件”从 rollout 和 actor 中拆出去。<code>OmniRewardLoopManager</code> 支持 legacy reward、命名 reward model、engine backend、native backend 和 accelerator workers；它还检查某些聚合方式只可用于 OmniNFT。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/reward_loop/reward_loop.py#L129-L177">OmniRewardLoopManager 初始化</a></p>
+<p>多 reward 的难点是资源并不均匀：某些是 CPU 函数、某些是共享 engine、某些是独占 native GPU 模型。manager 会按 model placement 分 worker group，区分 shared engine terms 和 native terms。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/reward_loop/reward_loop.py#L185-L266">reward worker 分组</a></p>
+
+<figure class="flow"><div class="flow-head">Reward 的两种接入时机<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;Reward 的两种接入时机&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;out&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;生成媒体&quot;, &quot;s&quot;: &quot;DataProto / TQ&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;stream&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;streaming reward&quot;, &quot;s&quot;: &quot;agent loop 期间&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;col&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;colocated reward&quot;, &quot;s&quot;: &quot;trainer 读队列后&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mgr&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Reward manager&quot;, &quot;s&quot;: &quot;函数／模型&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;score&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;score&quot;, &quot;s&quot;: &quot;写回 batch&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;adv&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;advantage&quot;, &quot;s&quot;: &quot;FlowGRPO&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;out&quot;, &quot;b&quot;: &quot;stream&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;out:b&quot;, &quot;b&quot;: &quot;col:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;stream&quot;, &quot;b&quot;: &quot;mgr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;col&quot;, &quot;b&quot;: &quot;mgr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mgr&quot;, &quot;b&quot;: &quot;score&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;score&quot;, &quot;b&quot;: &quot;adv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 180.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 145.0}}"></div><figcaption>streaming handle 只在配置允许时暴露，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/reward_loop/reward_loop.py#L179-L184">reward_loop_worker_handles</a>；colocated 路径在 trainer 内被调用，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L589-L610">_train_sampled_batch 的 reward 阶段</a>。</figcaption></figure>
+<h3 id="s6-2">契约与坑</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>含义</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>custom_reward_function</code></td>
+<td>指向一个 Python 文件与函数名</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/reward/reward.yaml#L16-L30">custom reward</a></td>
+</tr>
+<tr>
+<td><code>reward_functions</code></td>
+<td>多项 reward term 的声明</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/reward/reward.yaml#L32-L50">multi reward</a></td>
+</tr>
+<tr>
+<td><code>models</code></td>
+<td>命名模型与 backend／placement</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/reward/reward.yaml#L45-L50">named models</a></td>
+</tr>
+<tr>
+<td><code>aggregation</code></td>
+<td><code>weighted_sum</code> 或保留组件</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/reward/reward.yaml#L49-L50">aggregation</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>容易误解：</strong> 只有“有 reward model”不代表一定在 rollout 时流式评分。<code>reward_loop_worker_handles</code> 会根据 <code>streaming_reward_enabled</code> 返回 <code>None</code>；此时 V1 在读取队列后调用 colocated scorer。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/reward_loop/reward_loop.py#L179-L184">streaming 条件</a> 如果把 reward worker 与 actor／rollout 混在同一资源池，sync 模式的 sleep／wake 顺序也成为显存正确性的一部分。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L589-L610">显存生命周期说明</a></p>
+<h2 id="s7">优势、策略与 actor worker：从分数变成梯度</h2>
+<h3 id="s7-1">职责、难点与原理</h3>
+<p>对于 FlowGRPO，driver 先将 sample score 扩到每个 diffusion timestep，再按同 uid 的 rollout group 计算 group-relative advantage。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1529-L1548">_compute_advantage</a> 默认实现可以选择 global 或 group std 来归一化。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py#L212-L287">FlowGRPO advantage</a></p>
+<p>之后 trainer 依 recipe 执行 old logprob、rollout correction、reference logprob、teacher scoring，最后调用 actor worker 的 <code>update_actor</code>。整个顺序就在 <code>_train_sampled_batch()</code>；它是理解该项目的最高价值函数。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L575-L682">训练 batch 主路径</a></p>
+
+<figure class="flow"><div class="flow-head">FlowGRPO 的计算链<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;FlowGRPO 的计算链&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;data&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;DataProto&quot;, &quot;s&quot;: &quot;轨迹 / score&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;old&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;old logprob&quot;, &quot;s&quot;: &quot;可跳过&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ref&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;reference&quot;, &quot;s&quot;: &quot;可选 KL&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;adv&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;advantage&quot;, &quot;s&quot;: &quot;组内相对分数&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;loss&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;diffusion loss&quot;, &quot;s&quot;: &quot;FlowGRPO&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;upd&quot;, &quot;c&quot;: 5.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;update_actor&quot;, &quot;s&quot;: &quot;Ray workers&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;corr&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;校正&quot;, &quot;s&quot;: &quot;可选&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;data&quot;, &quot;b&quot;: &quot;old&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;old&quot;, &quot;b&quot;: &quot;ref&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ref&quot;, &quot;b&quot;: &quot;adv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;adv&quot;, &quot;b&quot;: &quot;loss&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;loss&quot;, &quot;b&quot;: &quot;upd&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;old:b&quot;, &quot;b&quot;: &quot;corr:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;corr:r&quot;, &quot;b&quot;: &quot;adv:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 157.0, &quot;rh&quot;: 94.0, &quot;nw&quot;: 130.0}}"></div><figcaption>old logprob 通过 actor 的 inference 接口重算，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1475-L1502">_compute_old_log_prob</a>；reference 可复用去 LoRA 的 actor 或单独 worker，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1504-L1527">_compute_ref_log_prob</a>。</figcaption></figure>
+<h3 id="s7-2">契约</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>抽象</th>
+<th>必需输入</th>
+<th>产出 / 约束</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DiffusionLossFn</code></td>
+<td>worker model output + batch fields</td>
+<td>各 loss 声明缺失字段时 fail fast</td>
+</tr>
+<tr>
+<td><code>FlowGRPOLoss</code></td>
+<td><code>log_probs</code>、<code>old_log_probs</code>、<code>advantages</code></td>
+<td>clipped policy objective</td>
+</tr>
+<tr>
+<td><code>DiffusionAdvantageEstimator</code></td>
+<td><code>sample_level_rewards</code>、group index</td>
+<td>每 timestep 的 advantage / return</td>
+</tr>
+<tr>
+<td>actor worker</td>
+<td><code>TensorDict</code> 和 micro-batch 元数据</td>
+<td>metrics，经 driver 聚合</td>
+</tr>
+</tbody>
+</table></div>
+<p>loss registry 与输入校验见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py#L52-L167">DiffusionLossFn 与 registry</a>；<code>FlowGRPOLoss</code> 明确要求 <code>log_probs</code>、<code>old_log_probs</code> 与 <code>advantages</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py#L290-L297">FlowGRPOLoss</a> actor 更新会把 <code>ppo_mini_batch_size</code> 乘上 rollout <code>n</code>，并把 actor metrics 改名前缀。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L1551-L1594">_update_actor</a></p>
+
+<div class="callout analogy"><div class="callout-title">类比 · 一个 rollout group 像同一道考题的多份答卷</div><p>奖励的绝对值不直接说明“这张图该增大还是减小概率”；FlowGRPO 把同一 prompt 的多个 session 当作同一道题的多份答卷，用组均值做基线。<code>uid</code> 是题号，<code>n</code> 是答卷数，归一化后的差值是学习信号。映射可在 advantage 实现的 <code>id2score</code> 分组逻辑直接看到。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py#L250-L287">group-relative advantage</a></p>
+</div>
+<p><strong>容易误解：</strong> direct preference 不走这条 old logprob 路径。代码在 <code>trainer_type=direct_preference</code> 时改用 <code>_train_direct_preference_batch()</code>，DPO 等 loss 需要 <code>noise_pred</code>；offline DPO 仍刻意留在 V0。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L185-L205">direct preference 边界</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L764-L802">direct preference 路径</a></p>
+<h2 id="s8">模型 adapter 与 rollout backend：可扩展性放在边缘，而不在 trainer 分叉</h2>
+<h3 id="s8-1">职责、难点与原理</h3>
+<p>Diffusion 模型的 scheduler、text condition、latent 格式和一次 forward 的语义差别很大。<code>DiffusionModelBase</code> 因此用 <code>(architecture, algorithm)</code> 注册 adapter：architecture 通常来自模型的 <code>model_index.json</code>，algorithm 来自配置。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py#L30-L93">adapter registry</a> 在初始化 tokenizer／processor 前，trainer 也先解析 architecture 并调用 adapter 的 <code>prepare_processor_files()</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L881-L930">模型与 processor 初始化</a></p>
+<p>adapter 必须实现 scheduler、timestep、输入准备、forward+采样上一步等抽象方法；这使 FlowGRPO trainer 不需要知道 Qwen-Image、SD3、Wan 或视频模型的内部输入格式。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py#L228-L336">DiffusionModelBase 抽象契约</a></p>
+
+<figure class="flow"><div class="flow-head">新 diffusion 模型的接入边界<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;新 diffusion 模型的接入边界&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;cfg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;模型配置&quot;, &quot;s&quot;: &quot;architecture + algo&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Adapter registry&quot;, &quot;s&quot;: &quot;(arch, algo)&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;prep&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;训练 adapter&quot;, &quot;s&quot;: &quot;scheduler / inputs&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;work&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Actor worker&quot;, &quot;s&quot;: &quot;forward / update&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pipe&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Rollout adapter&quot;, &quot;s&quot;: &quot;vLLM-Omni&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;srv&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Rollout replica&quot;, &quot;s&quot;: &quot;HTTP / async&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;cfg&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;prep&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;prep&quot;, &quot;b&quot;: &quot;work&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg:b&quot;, &quot;b&quot;: &quot;pipe:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pipe&quot;, &quot;b&quot;: &quot;srv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 176.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 144.0}}"></div><figcaption>不匹配的 adapter 会在 registry 查找时抛出包含已注册 keys 的错误，见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py#L73-L93">get_class_by_name</a>；rollout output 的媒体 artifact 合同见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/workers/rollout/replica.py#L29-L47">DiffusionOutput</a>。</figcaption></figure>
+<h3 id="s8-2">怎样定制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>应修改的边界</th>
+<th>不该修改的边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>支持新 diffusion architecture</td>
+<td><code>DiffusionModelBase</code> 子类 + 对应 training / rollout adapter</td>
+<td>V1 trainer 的循环</td>
+</tr>
+<tr>
+<td>新 policy-gradient 算法</td>
+<td>advantage estimator、loss、配置、测试</td>
+<td>复制一份 Ray trainer</td>
+</tr>
+<tr>
+<td>新 reward</td>
+<td>reward function / reward manager / named model config</td>
+<td>把评分代码塞进 pipeline</td>
+</tr>
+<tr>
+<td>新 agent 工作流</td>
+<td>agent loop manager 或 custom class FQN</td>
+<td>破坏 TQ row schema</td>
+</tr>
+<tr>
+<td>新后端</td>
+<td>worker engine / rollout replica registry</td>
+<td>假设 <code>vllm_omni</code> 是唯一实现</td>
+</tr>
+</tbody>
+</table></div>
+<p>仓库提供的贡献文档把“新 diffusion model”“新 policy-gradient algorithm”“新 direct-preference algorithm”“新 omni model”拆成不同路线。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/CONTRIBUTING.md#L54-L72">集成指南索引</a> 外部 adapter 可以通过 <code>external_lib</code> 动态导入，而不是改仓库 registry。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py#L73-L93">external_lib</a></p>
+<h2 id="s9">端到端生命周期：Qwen-Image V1 FlowGRPO 的一次迭代</h2>
+<p>以下以仓库中的 Qwen-Image OCR LoRA V1 recipe 为例；它使用 4 GPU、rollout <code>n=16</code>、vLLM-Omni rollout、OCR reward。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/examples/flowgrpo_trainer/qwen_image/run_qwen_image_ocr_lora_v1.sh#L21-L109">完整配方</a> 这是从源码读出的控制流，不代表每个模型／算法配方都使用同一组参数。</p>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ 一条训练迭代的完整路径</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;hydra&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Hydra&quot;, &quot;s&quot;: &quot;解析配方&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;task&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Ray runner&quot;, &quot;s&quot;: &quot;init TQ&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;data&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Dataset&quot;, &quot;s&quot;: &quot;parquet → batch&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gen&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Agent rollout&quot;, &quot;s&quot;: &quot;16 个样本&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tq&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TransferQueue&quot;, &quot;s&quot;: &quot;完整 group&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rew&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;OCR reward&quot;, &quot;s&quot;: &quot;score&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;lp&quot;, &quot;c&quot;: 5.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;old / ref&quot;, &quot;s&quot;: &quot;logprob&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;adv&quot;, &quot;c&quot;: 6.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;FlowGRPO&quot;, &quot;s&quot;: &quot;advantage&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;act&quot;, &quot;c&quot;: 7.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Actor update&quot;, &quot;s&quot;: &quot;LoRA&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ws&quot;, &quot;c&quot;: 8.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;weight sync&quot;, &quot;s&quot;: &quot;下一批&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;hydra&quot;, &quot;b&quot;: &quot;task&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;task&quot;, &quot;b&quot;: &quot;data&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;data&quot;, &quot;b&quot;: &quot;gen&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gen&quot;, &quot;b&quot;: &quot;tq&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tq:b&quot;, &quot;b&quot;: &quot;rew:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tq&quot;, &quot;b&quot;: &quot;lp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rew&quot;, &quot;b&quot;: &quot;adv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;lp&quot;, &quot;b&quot;: &quot;adv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;adv&quot;, &quot;b&quot;: &quot;act&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;act&quot;, &quot;b&quot;: &quot;ws&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ws:b&quot;, &quot;b&quot;: &quot;gen:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 145.0, &quot;rh&quot;: 90.0, &quot;nw&quot;: 121.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="hydra,task"><div class="step-title">1. 1：解析与建图</div><p>脚本从 <code>python3 -m verl_omni.trainer.main_diffusion_v1</code> 启动。入口 resolve 配置、初始化 Ray，并在 TaskRunner 中初始化 TransferQueue、trainer 和 agent loop manager。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py#L134-L155">TaskRunner.run</a></p>
+</div><div class="step" data-hl="data"><div class="step-title">2. 2：读取 prompt batch</div><p>trainer 用 tokenizer／processor 建 dataset，并用 <code>StatefulDataLoader</code> 取 generation batch；训练步数可来自 epochs 或显式 <code>total_training_steps</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L947-L1010">_init_dataloader</a></p>
+</div><div class="step" data-hl="gen,tq"><div class="step-title">3. 3：生成并写入队列</div><p>driver 先 <code>_add_batch_to_generate()</code>；agent loop 对每个 prompt 启动 session，生成 tensor 和 metadata 后批量写入 TransferQueue。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L539-L543">feed</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py#L49-L108">generate_sequences</a></p>
+</div><div class="step" data-hl="tq,rew"><div class="step-title">4. 4：评分与取样</div><p>ReplayBuffer 等完整 group；如果是 colocated reward，trainer 在 materialize 后计算 score。否则 agent loop 的 streaming scorer 已把结果带入队列行。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L561-L610">sample + reward</a></p>
+</div><div class="step" data-hl="lp,adv"><div class="step-title">5. 5：计算训练张量</div><p>trainer 依配置重算 old logprob、可选 reference logprob，扩展 score 到 timestep，并计算 FlowGRPO advantage。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L617-L665">logprob 到 actor update</a></p>
+</div><div class="step" data-hl="act,ws"><div class="step-title">6. 6：更新并同步</div><p>actor worker 更新 LoRA／参数；sync mode 的 <code>on_step_end()</code> 再唤醒 rollout replica 并同步新权重。该顺序是避免 actor update 与大 rollout 权重同驻留而 OOM 的内存协议。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_sync.py#L56-L68">同步 hook</a></p>
+</div></div></div>
+<h2 id="s10">部署、运行与观测边界</h2>
+<p>项目的正常环境是 Python 3.11+、CUDA 13+ 的 GPU 训练环境；官方安装路径使用 <code>uv</code>，首先安装固定 vLLM，再安装项目 GPU extra。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/install.md#L7-L11">系统要求</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/install.md#L36-L64">安装命令</a> <code>pyproject.toml</code> 同时固定了 <code>vllm==0.30.0</code>、特定提交的 <code>vllm-omni</code> 和 <code>verl</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/pyproject.toml#L30-L64">依赖 pins</a></p>
+
+<figure class="flow"><div class="flow-head">运行时的可观测性与持久化<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;运行时的可观测性与持久化&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;cfg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Hydra config&quot;, &quot;s&quot;: &quot;logger / profiler&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ray&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Ray&quot;, &quot;s&quot;: &quot;timeline 可选&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;log&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Tracking&quot;, &quot;s&quot;: &quot;console / W&amp;B&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ckpt&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;checkpoint&quot;, &quot;s&quot;: &quot;actor + loader&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tq&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;TQ metrics&quot;, &quot;s&quot;: &quot;可选端点&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dump&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;rollout dump&quot;, &quot;s&quot;: &quot;媒体 + JSONL&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;cfg&quot;, &quot;b&quot;: &quot;ray&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ray&quot;, &quot;b&quot;: &quot;log&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ray&quot;, &quot;b&quot;: &quot;ckpt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;log&quot;, &quot;b&quot;: &quot;tq&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;log:b&quot;, &quot;b&quot;: &quot;dump:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 180.0, &quot;rh&quot;: 88.0, &quot;nw&quot;: 145.0}}"></div><figcaption>默认 logger 为 console + W&amp;B，checkpoint 和 rollout dump 配置见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L145-L229">trainer 配置</a>；TQ metrics/backend 配置见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L477-L535">TransferQueue backend</a>。</figcaption></figure>
+<p>V1 的 <code>fit()</code> 在更新后可 checkpoint、验证、导出 rollout 数据，随后清除本步 keys。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py#L410-L460">fit 的持久化和清理</a> 不应把队列当作永久数据湖：默认 SimpleStorage 是进程内／ZMQ 方式；另一个 MooncakeStore 仍标为 experimental。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml#L494-L535">队列存储 backend</a></p>
+<h2 id="s11">贡献与定制</h2>
+<h3 id="s11-1">真实开发路径</h3>
+<p>官方贡献流程建议 GPU 环境下安装 <code>vllm==0.30.0</code>、editable 包和 <code>pre-commit</code>；贡献前运行相关测试和 pre-commit。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/AGENTS.md#L73-L86">开发环境</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/CONTRIBUTING.md#L24-L52">lint 与测试</a> 文档构建命令也在贡献指南中。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/CONTRIBUTING.md#L40-L52">文档构建</a></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>目标</th>
+<th>起点</th>
+<th>首先验证</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新模型</td>
+<td>integration guide + adapter registry</td>
+<td>model／rollout 输入、scheduler、最小 recipe</td>
+</tr>
+<tr>
+<td>新算法</td>
+<td>loss / advantage registry</td>
+<td>输入字段、组完整性、CPU 单测 + GPU smoke</td>
+</tr>
+<tr>
+<td>新评分器</td>
+<td>reward config / manager</td>
+<td>placement、媒体类型、failover、聚合含义</td>
+</tr>
+<tr>
+<td>性能优化</td>
+<td>先 profile，再动 lifecycle</td>
+<td>是否破坏 sleep／wake 与 weight sync</td>
+</tr>
+<tr>
+<td>新异步拓扑</td>
+<td>separate_async + checkpoint engine</td>
+<td>policy staleness、完整组、权重同步后端</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 共享训练核心有明确的贡献边界</div><p>上游 <code>AGENTS.md</code> 要求共享的 <code>trainer/</code>、<code>workers/</code>、<code>agent_loop/</code> 核心保持 model- 和 algorithm-agnostic，优先 registry 而不是 fork；也要求检查重复工作、人工审阅变更，且未经明确授权不得修改 CI／agent instructions。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/AGENTS.md#L5-L67">贡献政策与 protected surfaces</a></p>
+</div>
+<h3 id="s11-2">定制路线</h3>
+
+<figure class="flow"><div class="flow-head">选择最小的改动面<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;选择最小的改动面&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;need&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;你的需求&quot;, &quot;s&quot;: &quot;模型 / 算法 / 奖励&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;model&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;新模型&quot;, &quot;s&quot;: &quot;adapter + rollout&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;algo&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;新算法&quot;, &quot;s&quot;: &quot;loss + advantage&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rew&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;新评分&quot;, &quot;s&quot;: &quot;reward manager&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;core&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;共享 trainer&quot;, &quot;s&quot;: &quot;最后才改&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;need&quot;, &quot;b&quot;: &quot;model&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;need&quot;, &quot;b&quot;: &quot;algo&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;need&quot;, &quot;b&quot;: &quot;rew&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;model:b&quot;, &quot;b&quot;: &quot;core:t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;algo&quot;, &quot;b&quot;: &quot;core&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}, {&quot;a&quot;: &quot;rew:t&quot;, &quot;b&quot;: &quot;core:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 175.0, &quot;rh&quot;: 85.0, &quot;nw&quot;: 143.0}}"></div><figcaption>这不是说永远不能改 core，而是先利用现有 extension contracts。模型 adapter 的注册点见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py#L50-L93">registry</a>，loss／advantage 注册点见 <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py#L148-L209">loss 与 advantage registries</a>。</figcaption></figure>
+<h2 id="s12">开源许可证与第三方边界</h2>
+<p>当前仓库根目录是 Apache License 2.0。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/LICENSE#L1-L14">LICENSE</a> 项目元数据也声明 <code>Apache-2.0</code>。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/pyproject.toml#L14-L29">project metadata</a> GitHub API 的 <code>LICENSE</code> 路径历史显示，2026-04-29 的提交 <code>122caa19923b3eb2bfff0789b69a9c73b05df220</code> 将 Apache-2.0 文本加入此仓库；本报告未找到、也不声称有更早的本仓库许可证历史。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>Apache-2.0 下通常可以做什么</th>
+<th>需要保留／注意</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自用、实验</td>
+<td>可以使用和修改</td>
+<td>风险自担；第三方依赖／模型仍适用自己的条款</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>可以</td>
+<td>项目贡献规则、人工审阅、测试与署名要求</td>
+</tr>
+<tr>
+<td>公开 fork</td>
+<td>可以</td>
+<td>附许可证、保留 copyright/patent/trademark notices，标明修改</td>
+</tr>
+<tr>
+<td>发布安装包</td>
+<td>可以</td>
+<td>附许可证和相关 NOTICE（若分发中存在）</td>
+</tr>
+<tr>
+<td>对外提供训练服务</td>
+<td>Apache-2.0 不像 AGPL 那样要求公布服务端源码</td>
+<td>仍要审查模型权重、数据、vLLM／verl 等第三方许可</td>
+</tr>
+<tr>
+<td>使用项目名／Logo</td>
+<td>只限合理描述来源</td>
+<td>Apache-2.0 不授予商标许可</td>
+</tr>
+</tbody>
+</table></div>
+<p>上表是 Apache-2.0 的工程摘要，不是法律意见。许可证文本规定分发要求、贡献默认条款和商标例外。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/LICENSE#L65-L115">Apache 分发条款</a> <a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/LICENSE#L116-L151">贡献与商标</a> 仓库还固定了 Git 依赖和模型生态软件；这些都不是根 LICENSE 自动覆盖的对象。<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/pyproject.toml#L30-L64">第三方依赖边界</a></p>
+<h2 id="s13">附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>从这里开始</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V1 入口／Ray</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/main_diffusion_v1.py">main_diffusion_v1.py</a></td>
+</tr>
+<tr>
+<td>V1 trainer 主循环</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_base.py">trainer_base.py</a></td>
+</tr>
+<tr>
+<td>sync 生命周期</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_sync.py">trainer_sync.py</a></td>
+</tr>
+<tr>
+<td>separate async 生命周期</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/trainer_separate_async.py">trainer_separate_async.py</a></td>
+</tr>
+<tr>
+<td>队列数据转换</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/v1/tq_utils.py">tq_utils.py</a></td>
+</tr>
+<tr>
+<td>diffusion agent loop</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/agent_loop/diffusion_agent_loop_tq.py">diffusion_agent_loop_tq.py</a></td>
+</tr>
+<tr>
+<td>reward 编排</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/reward_loop/reward_loop.py">reward_loop.py</a></td>
+</tr>
+<tr>
+<td>loss / advantage</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/diffusion/diffusion_algos.py">diffusion_algos.py</a></td>
+</tr>
+<tr>
+<td>模型 adapter 协议</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/pipelines/model_base.py">model_base.py</a></td>
+</tr>
+<tr>
+<td>rollout replica</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/workers/rollout/replica.py">replica.py</a></td>
+</tr>
+<tr>
+<td>默认训练配置</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion_trainer.yaml">diffusion_trainer.yaml</a></td>
+</tr>
+<tr>
+<td>默认 rollout 配置</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/verl_omni/trainer/config/diffusion/rollout/diffusion_rollout.yaml">diffusion_rollout.yaml</a></td>
+</tr>
+<tr>
+<td>安装与 V1 文档</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/install.md">install.md</a>、<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/docs/start/diffusion_v1.md">diffusion_v1.md</a></td>
+</tr>
+<tr>
+<td>贡献边界</td>
+<td><a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/AGENTS.md">AGENTS.md</a>、<a class="src" href="https://github.com/verl-project/verl-omni/blob/d65b2017fe09fc30a60f8aea70b445b604b5db45/CONTRIBUTING.md">CONTRIBUTING.md</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>
