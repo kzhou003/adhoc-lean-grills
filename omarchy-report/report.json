@@ -1,0 +1,14 @@
+{
+  "title": "Omarchy 4.0：从源码看懂这个系统，再把它用好",
+  "kicker": "源码导读 · 功能指南 · omacom/omarchy",
+  "lede": "Omarchy 是 DHH 做的一套 Arch Linux + Hyprland 发行版层，4.0（quattro 分支）把它改成了 pacman 包发布、Lua 写的 Hyprland 配置和一个常驻的 Quickshell 桌面。这份导读分两半：前半从源码讲它怎么装、命令怎么路由、配置怎么分层、主题怎么一键换遍全系统、更新和迁移怎么跑、“agentic”具体指什么；后半是面向日常使用的功能指南：快捷键体系、菜单、剪贴板、听写、截屏录屏、AI 工具链、Web App、自定义与维护，以及哪些操作会覆盖你的配置。所有源码链接固定在同一个 commit，构建时逐条校验。",
+  "brand": "Omarchy 4.0 导读",
+  "lang": "zh",
+  "sources": ["report.md"],
+  "output": "report.html",
+  "pdf": "report.pdf",
+  "pins": {
+    "om": {"repo": "omacom/omarchy", "sha": "e30e18c53ac8f3dbf028f797600f42400b3e2d81", "local": "~/development/drills-src/omarchy-src/omarchy"}
+  },
+  "quality": {"flows": 10, "analogies": 3, "links": 90}
+}

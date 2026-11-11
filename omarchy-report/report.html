@@ -1,0 +1,1633 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Omarchy 4.0：从源码看懂这个系统，再把它用好</title>
+<meta name="description" content="Omarchy 是 DHH 做的一套 Arch Linux + Hyprland 发行版层，4.0（quattro 分支）把它改成了 pacman 包发布、Lua 写的 Hyprland 配置和一个常驻的 Quickshell 桌面。这份导读分两半：前半从源码讲它怎么装、命令怎么路由、配置怎么分层、主题怎么一键换遍全系统、更新和迁移怎么跑、“agentic”具体指什么；后半是面向日常使用的功能指南：快捷键体系、菜单、剪贴板、听写、截屏录屏、AI 工具链、Web App、自定义与维护，以及哪些操作会覆盖你的配置。所有源码链接固定在同一个 commit，构建时逐条校验。">
+<style>
+/* ai-infra-dev-skills · shared page styles (reports, knowledge pages, hint pages). No dependencies. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --surface-2: #f0eee8; --border: #dedad0;
+  --text: #22211e; --muted: #6b675e; --accent: #2f6fdb; --accent-soft: #e3ecfb;
+  --code-bg: #f3f1ea; --hl: #ffb020; --hl-soft: #fff1d6;
+  --l1: #2e8b57; --l1-soft: #e4f3ea; --l2: #b7791f; --l2-soft: #fbf0dc; --l3: #c0392b; --l3-soft: #fbe5e2;
+  --ok: #2e8b57; --bad: #c0392b; --warn: #b7791f; --idea: #7a4fc4;
+  --tk-kw: #8a3ab9; --tk-str: #2f7d32; --tk-num: #b5541c; --tk-com: #8a867c; --tk-fn: #2457b8; --tk-type: #0f7b8a;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04); --radius: 10px;
+  --font: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei",
+          system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --left: 268px; --right: 220px; color-scheme: light;
+  /* diagram palette */
+  --f-dot: #d9d5cb; --f-acc: #2f6fdb; --f-acc-bg: #e3ecfb; --f-warn: #b7791f; --f-warn-bg: #fbf0dc; --f-pass: #2e8b57;
+  --f-pass-bg: #e4f3ea; --f-vio: #7a4fc4; --f-vio-bg: #efe8fb; --f-teal: #0f7b8a; --f-teal-bg: #e0f2f4;
+  --f-todo: #c0392b; --f-todo-bg: #fbe5e2;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; } }
+:root[data-theme="dark"] {
+  --bg: #17181b; --surface: #1f2125; --surface-2: #26282d; --border: #363a41; --text: #e6e4df; --muted: #a19d94;
+  --accent: #7aa7ff; --accent-soft: #23314d; --code-bg: #1b1d21; --hl: #ffc14d; --hl-soft: #3a2f14;
+  --l1: #5cc98b; --l1-soft: #1d3327; --l2: #e6b25c; --l2-soft: #3a2f1b; --l3: #f08070; --l3-soft: #3d2320;
+  --ok: #5cc98b; --bad: #f08070; --warn: #e6b25c; --idea: #b79cf0;
+  --tk-kw: #d19ef0; --tk-str: #8fd18f; --tk-num: #f0a35e; --tk-com: #7f7b73; --tk-fn: #8cb4ff; --tk-type: #5cc9d6;
+  --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  --f-dot: #30333a; --f-acc: #7aa7ff; --f-acc-bg: #23314d; --f-warn: #e6b25c; --f-warn-bg: #3a2f1b; --f-pass: #5cc98b;
+  --f-pass-bg: #1d3327; --f-vio: #b79cf0; --f-vio-bg: #2c2440; --f-teal: #5cc9d6; --f-teal-bg: #163238;
+  --f-todo: #f08070; --f-todo-bg: #3d2320; }
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15.5px/1.78 var(--font); overflow-x: hidden; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+.muted { color: var(--muted); } .small { font-size: 13px; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px;
+  padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; line-height: 1.5; }
+.btn:hover:not(:disabled) { border-color: var(--accent); } .btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- layout: left nav · content · right outline (code-wiki style) ---------- */
+.layout { display: grid; grid-template-columns: var(--left) minmax(0, 1fr); }
+.layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr) var(--right); }
+.sidebar, .outline { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; scrollbar-width: thin; }
+.sidebar { border-right: 1px solid var(--border); padding: 18px 10px 40px 16px; font-size: 13.2px; }
+.sidebar .brand { display: block; font-weight: 800; font-size: 15px; margin: 0 0 12px 6px; color: var(--text); }
+.sidebar a { display: block; padding: 2px 8px; border-radius: 6px; color: var(--text); line-height: 1.5; }
+.sidebar a:hover, .outline a:hover { background: var(--surface-2); text-decoration: none; }
+.sidebar .nav-group { margin: 14px 0 2px 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.sidebar a.nav-l2 { font-weight: 650; margin-top: 6px; }
+.sidebar a.nav-l3 { padding-left: 20px; color: var(--muted); font-size: 12.6px; }
+.sidebar a.cur, .outline a.cur { background: var(--accent-soft); color: var(--accent); }
+.sidebar a .nid { font: 700 12px var(--mono); color: var(--accent); margin-right: 6px; }
+.sidebar a.done .nid::after { content: " ✓"; color: var(--ok); }
+.outline { border-left: 1px solid var(--border); padding: 22px 12px 40px; font-size: 12.6px; }
+.outline .ttl { font-weight: 700; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 8px 6px; }
+.outline a { display: block; padding: 2px 6px; border-radius: 6px; color: var(--muted); line-height: 1.45; }
+.outline a.o3 { padding-left: 16px; }
+main { max-width: 940px; padding: 28px 40px 90px; min-width: 0; }
+.cover { padding: 30px 0 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.cover .kicker { font: 700 12px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+.cover h1 { font-size: 33px; line-height: 1.25; margin: 10px 0 10px; letter-spacing: -.01em; }
+.cover .lede { color: var(--muted); margin: 6px 0; font-size: 16px; }
+.cover .meta { font: 12.5px var(--mono); color: var(--muted); }
+.pager { display: flex; justify-content: space-between; gap: 12px; margin: 48px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.theme-btn { position: fixed; right: 16px; bottom: 16px; z-index: 20; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 999px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; box-shadow: var(--shadow); }
+
+/* ---------- typography ---------- */
+h2 { font-size: 25px; margin: 60px 0 12px; padding-top: 10px; border-top: 2px solid var(--text); letter-spacing: -.01em; }
+h3 { font-size: 19px; margin: 34px 0 8px; } h4 { font-size: 16px; margin: 22px 0 6px; }
+p, li { text-wrap: pretty; }
+code { font: 0.88em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: 12.8px; overflow-wrap: normal; }
+a.src { font: 0.86em var(--mono); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+a.src::after { content: " ↗"; font-size: .85em; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; }
+th { background: var(--surface-2); font-weight: 650; }
+th:first-child, td:first-child { min-width: 5.5em; }
+blockquote { margin: 12px 0; padding: 4px 14px; border-left: 3px solid var(--border); color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 28px 0; }
+
+/* ---------- callouts ---------- */
+.callout { margin: 16px 0; padding: 10px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); border-left-width: 4px; }
+.callout > :first-child { margin-top: 4px; } .callout > :last-child { margin-bottom: 4px; }
+.callout-title { font-weight: 700; margin-bottom: 2px; }
+.callout.key, .callout.info { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.callout.key > .callout-title, .callout.info > .callout-title { color: var(--accent); }
+.callout.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.callout.warn > .callout-title { color: var(--warn); }
+.callout.ok { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 7%, var(--surface)); }
+.callout.idea { border-left-color: var(--idea); background: color-mix(in srgb, var(--idea) 7%, var(--surface)); }
+.callout.idea > .callout-title { color: var(--idea); }
+.callout.analogy { border-left-color: #d9822b; background: color-mix(in srgb, #d9822b 7%, var(--surface)); }
+.callout.analogy > .callout-title { color: #b8691c; }
+
+/* ---------- hints / answers / solutions ---------- */
+details.hint, details.solution { margin: 12px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+details.hint > summary, details.solution > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-weight: 650; border-radius: var(--radius); }
+details > summary::-webkit-details-marker { display: none; }
+details.hint > summary::after, details.solution > summary::after { content: "▸"; margin-left: auto; color: var(--muted); }
+details[open].hint > summary::after, details[open].solution > summary::after { content: "▾"; }
+details[open].hint > summary, details[open].solution > summary { border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+details.hint > .body, details.solution > .body { padding: 6px 16px 14px; }
+.lvl { display: inline-block; border-radius: 6px; padding: 0 8px; font-size: 12px; font-weight: 700; color: #fff; }
+details.hint.l1 > summary { background: var(--l1-soft); } details.hint.l1 .lvl { background: var(--l1); }
+details.hint.l2 > summary { background: var(--l2-soft); } details.hint.l2 .lvl { background: var(--l2); }
+details.hint.l3 > summary { background: var(--l3-soft); } details.hint.l3 .lvl { background: var(--l3); }
+details.solution > summary { background: var(--l3-soft); } details.solution .lvl { background: var(--l3); }
+.spoiler-note { font-size: 12px; color: var(--muted); font-weight: 400; }
+details.answer { margin: 10px 0; border: 1px dashed var(--border); border-radius: 8px; background: var(--surface); }
+details.answer > summary { cursor: pointer; padding: 6px 12px; color: var(--accent); font-size: 14px; }
+details.answer > .body { padding: 2px 14px 10px; }
+
+/* ---------- code boxes ---------- */
+.codebox { margin: 14px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+.code-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.code-head .path { font-family: var(--mono); font-weight: 600; } .code-head .btn { margin-left: auto; padding: 1px 8px; font-size: 12px; }
+.codebox pre { margin: 0; border: 0; border-radius: 0; max-height: 560px; }
+.hljs-keyword, .hljs-built_in { color: var(--tk-kw); } .hljs-string { color: var(--tk-str); } .hljs-number { color: var(--tk-num); }
+.hljs-comment { color: var(--tk-com); font-style: italic; } .hljs-title, .hljs-title.function_ { color: var(--tk-fn); }
+.hljs-type, .hljs-class .hljs-title { color: var(--tk-type); } .hljs-meta { color: var(--warn); }
+
+/* ---------- stepper (step-through animation) ---------- */
+.stepper { margin: 18px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.stepper > .st-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+.stepper .st-title { font-weight: 650; } .stepper .st-count { color: var(--muted); font: 13px var(--mono); }
+.stepper .st-ctrl { margin-left: auto; display: flex; gap: 6px; }
+.stepper .st-dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px 0; }
+.stepper .st-dot { width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font: 11px var(--mono); cursor: pointer; padding: 0; }
+.stepper .st-dot.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stepper .st-dot.seen:not(.on) { border-color: var(--accent); color: var(--accent); }
+.stepper .st-diagram { padding: 10px 12px 0; } .stepper .st-diagram figure.flow { margin: 0; box-shadow: none; }
+.stepper .step { padding: 8px 16px 12px; }
+.stepper .step > .step-title { font-weight: 650; margin: 4px 0 6px; color: var(--accent); }
+.stepper.js .step { display: none; } .stepper.js .step.active { display: block; animation: fadein .22s ease; }
+.stepper:not(.js) .step + .step { border-top: 1px dashed var(--border); }
+@keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ---------- tabs ---------- */
+.tabs { margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.tab-heads { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border); background: var(--surface-2); border-radius: var(--radius) var(--radius) 0 0; }
+.tab-btn { border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 4px 12px; border-radius: 8px 8px 0 0; font: inherit; font-size: 13.5px; cursor: pointer; }
+.tab-btn.on { background: var(--surface); border-color: var(--border); color: var(--text); font-weight: 650; margin-bottom: -1px; }
+.tab-pane { display: none; padding: 4px 16px 10px; } .tab-pane.on { display: block; }
+
+/* ---------- cells ---------- */
+.cells { display: inline-flex; flex-wrap: wrap; gap: 3px; vertical-align: middle; }
+.cell { display: inline-block; min-width: 24px; padding: 0 5px; text-align: center; border: 1px solid var(--border); border-radius: 5px; font: 12px/20px var(--mono); background: var(--surface); }
+.cell.t { background: var(--f-acc-bg); border-color: var(--f-acc); } .cell.h { background: var(--f-vio-bg); border-color: var(--f-vio); }
+.cell.w { background: var(--f-teal-bg); border-color: var(--f-teal); } .cell.on { background: var(--hl-soft); border-color: var(--hl); font-weight: 700; }
+.cell.off { opacity: .45; } .cell.bad { background: var(--l3-soft); border-color: var(--bad); color: var(--bad); }
+.cell.ok { background: var(--l1-soft); border-color: var(--ok); color: var(--ok); } .cell.gap { border-style: dashed; }
+
+/* ---------- hub cards / progress ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+.card { display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 10px 14px; color: var(--text); box-shadow: var(--shadow); }
+.card:hover { border-color: var(--accent); text-decoration: none; }
+.card .cid { font: 700 12.5px var(--mono); color: var(--accent); } .card .cmeta { color: var(--muted); font-size: 12px; }
+.card .ctitle { font-weight: 650; margin: 2px 0 6px; line-height: 1.45; }
+.card .clinks { font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.card.done { border-color: var(--ok); } .card.done .cid::after { content: " ✓"; color: var(--ok); }
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+.progress > div { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.done-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 14px; }
+
+/* ---------- React-Flow-style diagrams ---------- */
+figure.flow { margin: 16px 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.flow-head { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; font-weight: 700; font-size: 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.flow-hint { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--muted); }
+.flow-body { overflow-x: auto; }
+.flow-body svg { display: block; margin: 0 auto; max-width: 100%; height: auto; font-family: var(--font); }
+figure.flow figcaption { padding: 7px 12px 9px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.f-bgdot { fill: var(--f-dot); }
+.f-node rect.f-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.3; filter: drop-shadow(0 1px 1.5px rgba(10,20,40,.10)); transition: stroke-width .15s, opacity .2s; }
+.f-node text.f-t { fill: var(--text); font-size: 13px; font-weight: 650; }
+.f-node text.f-s { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.f-node .f-handle { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.f-node.k-acc rect.f-box { fill: var(--f-acc-bg); stroke: var(--f-acc); } .f-node.k-warn rect.f-box { fill: var(--f-warn-bg); stroke: var(--f-warn); }
+.f-node.k-pass rect.f-box { fill: var(--f-pass-bg); stroke: var(--f-pass); } .f-node.k-vio rect.f-box { fill: var(--f-vio-bg); stroke: var(--f-vio); }
+.f-node.k-teal rect.f-box { fill: var(--f-teal-bg); stroke: var(--f-teal); } .f-node.k-todo rect.f-box { fill: var(--f-todo-bg); stroke: var(--f-todo); }
+.f-node.k-dark rect.f-box { fill: var(--text); stroke: var(--text); } .f-node.k-dark text { fill: var(--bg) !important; }
+.f-node.k-ghost rect.f-box { fill: none; stroke-dasharray: 4 3; }
+.f-grp rect { fill: none; stroke: var(--border); stroke-width: 1.4; stroke-dasharray: 6 4; }
+.f-grp text { fill: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+.f-grp.k-acc rect { fill: var(--f-acc-bg); fill-opacity: .35; stroke: var(--f-acc); } .f-grp.k-warn rect { fill: var(--f-warn-bg); fill-opacity: .45; stroke: var(--f-warn); }
+.f-grp.k-pass rect { fill: var(--f-pass-bg); fill-opacity: .45; stroke: var(--f-pass); } .f-grp.k-vio rect { fill: var(--f-vio-bg); fill-opacity: .45; stroke: var(--f-vio); }
+.f-grp.k-teal rect { fill: var(--f-teal-bg); fill-opacity: .45; stroke: var(--f-teal); } .f-grp.k-todo rect { fill: var(--f-todo-bg); fill-opacity: .45; stroke: var(--f-todo); }
+.f-e { fill: none; stroke: var(--muted); stroke-width: 1.6; transition: opacity .2s; }
+.f-e.k-acc { stroke: var(--f-acc); } .f-e.k-warn { stroke: var(--f-warn); } .f-e.k-pass { stroke: var(--f-pass); }
+.f-e.k-vio { stroke: var(--f-vio); } .f-e.k-teal { stroke: var(--f-teal); } .f-e.k-todo { stroke: var(--f-todo); }
+.f-ah { fill: var(--muted); transition: opacity .2s; } .f-ah.k-acc { fill: var(--f-acc); } .f-ah.k-warn { fill: var(--f-warn); } .f-ah.k-pass { fill: var(--f-pass); }
+.f-ah.k-vio { fill: var(--f-vio); } .f-ah.k-teal { fill: var(--f-teal); } .f-ah.k-todo { fill: var(--f-todo); }
+.f-e.dash { stroke-dasharray: 5 4; }
+.f-e.anim, .st-diagram svg.f-step .f-e.hl { stroke-dasharray: 6 4; animation: fdash .9s linear infinite; }
+@keyframes fdash { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .f-e.anim, .st-diagram svg.f-step .f-e.hl { animation: none; } }
+.f-el rect { fill: var(--surface); stroke: var(--border); } .f-el text { fill: var(--text); font-size: 11px; font-family: var(--mono); }
+svg.f-on .f-e:not(.hl), svg.f-on .f-el:not(.hl), svg.f-on .f-ah:not(.hl), svg.f-step .f-e:not(.hl), svg.f-step .f-ah:not(.hl), svg.f-step .f-el:not(.hl) { opacity: .15; }
+svg.f-on .f-node:not(.hl), svg.f-step .f-node:not(.hl) { opacity: .35; }
+svg .f-node.hl rect.f-box { stroke-width: 2.6; }
+svg.f-step .f-node.hl rect.f-box { stroke: var(--hl); stroke-width: 3; }
+
+/* ---------- responsive / print ---------- */
+@media (max-width: 1180px) { .layout.has-right { grid-template-columns: var(--left) minmax(0, 1fr); } .outline { display: none; } }
+@media (max-width: 900px) {
+  .layout, .layout.has-right { display: block; } .sidebar, .outline { display: none; }
+  main { padding: 16px 16px 80px; } .cover h1 { font-size: 26px; } h2 { font-size: 22px; }
+}
+@media print {
+  .sidebar, .outline, .theme-btn, .flow-hint, .st-ctrl, .st-dots, .pager, .code-head .btn, .done-row, .progress, #prog-text { display: none !important; }
+  .layout, .layout.has-right { display: block; } main { max-width: none; padding: 0; }
+  body { font-size: 12.5px; background: #fff; }
+  h2 { break-before: page; margin-top: 0; } h3, h4 { break-after: avoid; }
+  .page-break { break-before: page; }
+  figure.flow, .callout, table, .stepper .step, details.answer { break-inside: avoid; }
+  .codebox pre { max-height: none !important; overflow: visible !important; white-space: pre-wrap; word-break: break-all; }
+  .stepper.js .step { display: block !important; border-top: 1px dashed var(--border); }
+  a.src::after { content: ""; }
+  .f-e.anim { animation: none; }
+}
+
+</style>
+</head>
+<body data-store="report:Omarchy 4.0：从源码看懂这个系统，再把它用好" data-copied="已复制">
+<div class="layout">
+<nav class="sidebar" aria-label="nav"><a class="brand" href="#">Omarchy 4.0 导读</a>
+
+<a class="nav-l2" href="#s1">0. 怎么读这份导读</a>
+<a class="nav-l2" href="#s2">1. 全景：问题、目标、限制</a>
+<a class="nav-l3" href="#s2-1">1.1 没有它时的问题</a>
+<a class="nav-l3" href="#s2-2">1.2 一张总图</a>
+<a class="nav-l3" href="#s2-3">1.3 要求 / 目标 / 限制</a>
+<a class="nav-l2" href="#s3">2. 打包与安装</a>
+<a class="nav-l3" href="#s3-1">2.1 职责与难点</a>
+<a class="nav-l3" href="#s3-2">2.2 两个包</a>
+<a class="nav-l3" href="#s3-3">2.3 三层家目录</a>
+<a class="nav-l3" href="#s3-4">2.4 安装流水线</a>
+<a class="nav-l2" href="#s4">3. CLI 路由器：omarchy &lt;group&gt; &lt;cmd&gt;</a>
+<a class="nav-l3" href="#s4-1">3.1 职责与难点</a>
+<a class="nav-l3" href="#s4-2">3.2 原理：文件名就是路由</a>
+<a class="nav-l3" href="#s4-3">3.3 契约：命令头部元数据</a>
+<a class="nav-l2" href="#s5">4. Hyprland：Lua 配置与快捷键体系</a>
+<a class="nav-l3" href="#s5-1">4.1 职责与难点</a>
+<a class="nav-l3" href="#s5-2">4.2 加载顺序</a>
+<a class="nav-l3" href="#s5-3">4.3 快捷键的 DSL</a>
+<a class="nav-l2" href="#s6">5. Quickshell 桌面与菜单</a>
+<a class="nav-l3" href="#s6-1">5.1 职责与难点</a>
+<a class="nav-l3" href="#s6-2">5.2 结构</a>
+<a class="nav-l3" href="#s6-3">5.3 菜单：数据驱动</a>
+<a class="nav-l2" href="#s7">6. 主题流水线</a>
+<a class="nav-l3" href="#s7-1">6.1 职责与难点</a>
+<a class="nav-l3" href="#s7-2">6.2 数据：调色板 + 模板</a>
+<a class="nav-l3" href="#s7-3">6.3 切换过程</a>
+<a class="nav-l3" href="#s7-4">6.4 各应用怎么收到新主题</a>
+<a class="nav-l2" href="#s8">7. 更新、迁移与快照</a>
+<a class="nav-l3" href="#s8-1">7.1 职责与难点</a>
+<a class="nav-l3" href="#s8-2">7.2 omarchy update 的时间线</a>
+<a class="nav-l3" href="#s8-3">7.3 迁移</a>
+<a class="nav-l3" href="#s8-4">7.4 快照与回滚</a>
+<a class="nav-l2" href="#s9">8. “Agentic”：AI 代理是怎么接进系统的</a>
+<a class="nav-l2" href="#s10">9. 功能指南：用好这个 OS</a>
+<a class="nav-l3" href="#s10-1">9.1 心智模型：一切从键盘开始</a>
+<a class="nav-l3" href="#s10-2">9.2 快捷键速查（从源码整理）</a>
+<a class="nav-l3" href="#s10-3">9.3 按场景整理的内置功能</a>
+<a class="nav-l3" href="#s10-4">9.4 shell 里的小工具</a>
+<a class="nav-l3" href="#s10-5">9.5 给开发者的十个习惯</a>
+<a class="nav-l3" href="#s10-6">9.6 从 Mac / Windows 过来</a>
+<a class="nav-l2" href="#s11">10. 定制与维护</a>
+<a class="nav-l3" href="#s11-1">10.1 我想改 X → 改哪个文件</a>
+<a class="nav-l3" href="#s11-2">10.2 会覆盖你配置的命令</a>
+<a class="nav-l3" href="#s11-3">10.3 维护习惯</a>
+<a class="nav-l2" href="#s12">11. 端到端：按下 Super+Ctrl+T 到全系统换色</a>
+<a class="nav-l2" href="#s13">12. 开源许可证</a>
+<a class="nav-l2" href="#s14">13. 贡献与定制</a>
+<a class="nav-l3" href="#s14-1">13.1 开发环境</a>
+<a class="nav-l3" href="#s14-2">13.2 review 规则（摘自 AGENTS.md）</a>
+<a class="nav-l3" href="#s14-3">13.3 定制路线</a>
+<a class="nav-l3" href="#s14-4">13.4 仓库里没有的东西</a>
+<a class="nav-l2" href="#s15">14. 附录：源码索引</a></nav>
+<main>
+<header class="cover"><div class="kicker">源码导读 · 功能指南 · omacom/omarchy</div><h1>Omarchy 4.0：从源码看懂这个系统，再把它用好</h1><p class="lede">Omarchy 是 DHH 做的一套 Arch Linux + Hyprland 发行版层，4.0（quattro 分支）把它改成了 pacman 包发布、Lua 写的 Hyprland 配置和一个常驻的 Quickshell 桌面。这份导读分两半：前半从源码讲它怎么装、命令怎么路由、配置怎么分层、主题怎么一键换遍全系统、更新和迁移怎么跑、“agentic”具体指什么；后半是面向日常使用的功能指南：快捷键体系、菜单、剪贴板、听写、截屏录屏、AI 工具链、Web App、自定义与维护，以及哪些操作会覆盖你的配置。所有源码链接固定在同一个 commit，构建时逐条校验。</p><p class="meta">omacom/omarchy @ e30e18c</p></header>
+<h2 id="s1">0. 怎么读这份导读</h2>
+<p>写给两类读者：想<strong>每天把 Omarchy 用顺手</strong>的人，和想<strong>改它、给它提 PR</strong> 的工程师。前一类可以直接跳到第 9、10 章（功能指南、定制与维护），后一类按顺序读。</p>
+<ol>
+<li>全景：它解决什么问题，4.0 的整体结构</li>
+<li>打包与安装：两个 Arch 包、三层家目录</li>
+<li>CLI 路由器：<code>omarchy &lt;group&gt; &lt;cmd&gt;</code> 怎么找到脚本</li>
+<li>Hyprland 的 Lua 配置与快捷键体系</li>
+<li>Quickshell 桌面与菜单</li>
+<li>主题流水线：一条命令重新着色二十多个应用</li>
+<li>更新、迁移与快照</li>
+<li>“Agentic”：AI 代理是怎么接进系统的</li>
+<li>功能指南：用好这个 OS</li>
+<li>定制与维护：改哪里、哪些操作会覆盖你的配置</li>
+<li>端到端：按下 <code>Super+Ctrl+T</code> 到全系统换色</li>
+<li>许可证 · 13. 贡献与定制 · 14. 源码索引</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 固定版本</div><p>所有源码链接都固定在 <a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81">omacom/omarchy</a> 的 <code>e30e18c</code>（2026-11-11，默认分支 <code>quattro</code>，<code>version</code> 文件为 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/version">4.0.0.alpha</a>）。4.0 与 v1–v3 有根本区别：v3 是 <code>~/.local/share/omarchy</code> 下的 git 克隆、靠 <code>git pull</code> 更新；4.0 以 pacman 包发布，运行时路径是 <code>/usr/share/omarchy</code>。网上很多 v3 时代的教程在 4.0 上已经不适用。</p>
+</div>
+<h2 id="s2">1. 全景：问题、目标、限制</h2>
+<h3 id="s2-1">1.1 没有它时的问题</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>问题</th>
+<th>Omarchy 的做法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>装一台能用的 Linux 开发机</td>
+<td>Arch + Hyprland 要手动拼几十个组件：状态栏、通知、锁屏、截图、输入法、主题、电源管理</td>
+<td>一套“厨师选好的”（omakase）默认组合，装完就能用</td>
+</tr>
+<tr>
+<td>键盘驱动的工作流</td>
+<td>每个工具快捷键各自为政</td>
+<td>统一的 Super 键“平面”规则，所有动作都能从菜单、快捷键、CLI 三条路触达</td>
+</tr>
+<tr>
+<td>外观一致</td>
+<td>终端、编辑器、浏览器、状态栏各有各的主题格式</td>
+<td>一份 <code>colors.toml</code> + 模板，一条命令重新着色二十多个应用</td>
+</tr>
+<tr>
+<td>滚动更新的风险</td>
+<td><code>pacman -Syu</code> 偶尔把系统弄坏</td>
+<td>更新前自动快照、更新后跑迁移，坏了从启动菜单回滚</td>
+</tr>
+<tr>
+<td>让 AI 代理帮你改系统</td>
+<td>代理不知道系统有哪些能力、哪些文件能改</td>
+<td>每个命令带机器可读元数据，并给各家代理装一份 Omarchy skill</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s2-2">1.2 一张总图</h3>
+
+<figure class="flow"><div class="flow-head">Omarchy 4.0 的组成与周边<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;Omarchy 4.0 的组成与周边&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;iso&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;omarchy-iso&quot;, &quot;s&quot;: &quot;安装编排（外部仓库）&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pkg&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;omarchy-pkgs&quot;, &quot;s&quot;: &quot;PKGBUILD（外部仓库）&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;repo&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.6, &quot;t&quot;: &quot;pkgs.omarchy.org&quot;, &quot;s&quot;: &quot;pacman 仓库与镜像&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bin&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;bin/omarchy-*&quot;, &quot;s&quot;: &quot;591 个命令 + 路由器&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hypr&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Hyprland Lua 配置&quot;, &quot;s&quot;: &quot;default/hypr/*.lua&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;shell&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;Quickshell 桌面&quot;, &quot;s&quot;: &quot;bar · 菜单 · 通知 · 锁屏&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;theme&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;主题系统&quot;, &quot;s&quot;: &quot;colors.toml + *.tpl&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;agent&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;代理集成&quot;, &quot;s&quot;: &quot;skill + 命令元数据&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;upd&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;更新与迁移&quot;, &quot;s&quot;: &quot;pacman + migrations&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;home&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;你的 ~/.config&quot;, &quot;s&quot;: &quot;种子配置，归你&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;iso&quot;, &quot;b&quot;: &quot;bin&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pkg&quot;, &quot;b&quot;: &quot;hypr&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;repo:r&quot;, &quot;b&quot;: &quot;upd:b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bin&quot;, &quot;b&quot;: &quot;theme&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;agent&quot;, &quot;b&quot;: &quot;bin&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;theme&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;upd&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 196.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 164.0}}"></div><figcaption>黑色是不在本仓库的部分：ISO 安装器、打包脚本、pacman 仓库（见 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/file-layout.md#L8-L27">file-layout.md</a>）。蓝色是运行时的三大件，紫色是横跨它们的机制，绿色是用户自己的配置。</figcaption></figure>
+<h3 id="s2-3">1.3 要求 / 目标 / 限制</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>内容</th>
+<th>后面哪一章解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>核心目标</td>
+<td>装完即用、键盘驱动、好看、对 AI 代理友好</td>
+<td>第 4、5、8 章</td>
+</tr>
+<tr>
+<td>功能要求</td>
+<td>一个命令换全系统主题；菜单 / 快捷键 / CLI 三条路调用同一实现；更新可回滚</td>
+<td>第 3、6、7 章</td>
+</tr>
+<tr>
+<td>平台范围</td>
+<td>x86 与五种 ARM 平台（Apple Silicon、Snapdragon、NVIDIA N1x、GB10、通用 ARM），体验要一致</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md#L69-L80">AGENTS.md · Platforms</a></td>
+</tr>
+<tr>
+<td>性能约束</td>
+<td>常驻 shell 空闲时<strong>不得</strong> spawn 任何进程；路由器、菜单、主题切换都有时间预算</td>
+<td>第 5 章；<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md#L122-L126">Background Work</a></td>
+</tr>
+<tr>
+<td>用户配置约束</td>
+<td>更新不能覆盖用户改过的文件；默认值改进要能自动生效</td>
+<td>第 2、4、7 章</td>
+</tr>
+<tr>
+<td>安全约束</td>
+<td>外部主题和插件可能执行代码；提权要区分有无终端</td>
+<td>第 6、10 章</td>
+</tr>
+<tr>
+<td>许可证</td>
+<td>MIT</td>
+<td>第 12 章</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout analogy"><div class="callout-title">类比 · 一家定好菜单的餐馆</div><p>Omarchy 自称 omakase：厨师替你点好菜。<code>/usr/share/omarchy</code> 是<strong>后厨</strong>——菜谱和原料归厨房，每次进货（更新）都会整箱替换；<code>~/.config</code> 是<strong>你的餐桌</strong>——端上来以后怎么调味是你的事，厨房不会再碰；<code>~/.local/state/omarchy</code> 是<strong>传菜口</strong>——当前这一桌的配色、开关状态都在这里临时放着，由厨房生成，你不该伸手进去。看懂这三块地方各归谁，就看懂了 Omarchy 的大半设计。</p>
+</div>
+<h2 id="s3">2. 打包与安装</h2>
+<h3 id="s3-1">2.1 职责与难点</h3>
+<p><strong>职责</strong>：把仓库里的东西放到目标机器的正确位置，并为每个用户准备好家目录。<strong>难点</strong>：有些文件必须在 <code>useradd -m</code> 之前就位（<code>/etc/skel</code>、limine、snapper 配置），有些只能在用户第一次图形登录时做（启用 user units、音频调校）；还要支持“给别人装机、首次开机再建用户”的预装镜像。</p>
+<h3 id="s3-2">2.2 两个包</h3>
+<p>v4 从同一个仓库构建两个 Arch 包，PKGBUILD 在外部的 <code>omarchy-pkgs</code> 仓库（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/file-layout.md#L8-L23">file-layout.md</a>）：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>包</th>
+<th>内容</th>
+<th>安装到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>omarchy</code></td>
+<td><code>bin/</code>、<code>install/</code>、<code>migrations/</code>、<code>themes/</code>、<code>shell/</code></td>
+<td><code>/usr/bin/omarchy-*</code>、<code>/usr/share/omarchy/</code></td>
+</tr>
+<tr>
+<td><code>omarchy-settings</code></td>
+<td><code>/etc/skel/**</code>（来自 <code>config/</code>）、<code>/etc</code> drop-in、字体、plymouth/sddm 主题、limine/snapper 配置</td>
+<td><code>/etc/**</code>、<code>/usr/share/omarchy/default/</code> 等</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>OMARCHY_PATH</code> 由 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/bash/env-bootstrap#L10-L16">env-bootstrap</a> 设置：有 <code>/etc/omarchy.conf</code>（dev-link 写入）就读它，否则<strong>强制</strong>为 <code>/usr/share/omarchy</code>。按 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md#L64-L67">AGENTS.md</a> 的规定，运行时代码只能依赖这个变量，不准自己推导回退路径。</p>
+<h3 id="s3-3">2.3 三层家目录</h3>
+
+<figure class="flow"><div class="flow-head">家目录是分三次填进去的<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;家目录是分三次填进去的&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;skel&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;/etc/skel&quot;, &quot;s&quot;: &quot;来自 config/&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ua&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;useradd -m&quot;, &quot;s&quot;: &quot;只在建用户时复制一次&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;home&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;$HOME&quot;, &quot;s&quot;: &quot;~/.config 归用户&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;prov&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;provision-user&quot;, &quot;s&quot;: &quot;skill 软链 · 用户设置&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;first&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;first-run&quot;, &quot;s&quot;: &quot;首次图形登录&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;re&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;reinstall-configs&quot;, &quot;s&quot;: &quot;cp -af，无备份&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;skel&quot;, &quot;b&quot;: &quot;ua&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ua&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;prov&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;first&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;re&quot;, &quot;b&quot;: &quot;home&quot;, &quot;t&quot;: &quot;重置&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: true}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 166.0}}"></div><figcaption>普通的 <code>omarchy update</code> 不会重新复制 <code>config/</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/file-layout.md#L33-L48">file-layout.md · 三层</a>）。全量重置 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-reinstall-configs#L19-L22">omarchy-reinstall-configs</a> 会直接覆盖，并且顺带重置 Limine 和 Plymouth。</figcaption></figure>
+<h3 id="s3-4">2.4 安装流水线</h3>
+<p>本仓库<strong>没有</strong> <code>install.sh</code> 这类入口，安装由外部 ISO 编排（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/agents/skills/install-scripts.md#L5-L13">install-scripts.md</a>）。仓库提供的是目标机上的三个命令：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>命令（身份）</th>
+<th>做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>系统级</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-apply-system">omarchy-apply-system</a>（root，在 chroot 里）</td>
+<td>依次 source <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/config/all.sh">config/all.sh</a>（主题系统、浏览器策略、锁定策略、ssh、docker、snapper、防火墙…）→ 硬件叶子 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/hardware/all.sh">hardware/all.sh</a>（按厂商分组约 79 项）→ 登录 → post-install</td>
+</tr>
+<tr>
+<td>用户级</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-provision-user">omarchy-provision-user</a>（用户）</td>
+<td>把 agent skill 软链进 6 种代理的目录（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-provision-user#L87-L101">L87–101</a>），source <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/user/all.sh">user/all.sh</a>，默认主题设为 Tokyo Night（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/user/theme.sh#L4-L11">theme.sh</a>）</td>
+</tr>
+<tr>
+<td>首次登录</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-provision-first-run">omarchy-provision-first-run</a></td>
+<td>启用 user units、平台分派 <code>setup-user</code>、音频调校、欢迎页</td>
+</tr>
+</tbody>
+</table></div>
+<p>每个叶子脚本都通过 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/helpers/logging.sh#L41">run_logged</a> 执行并写进 <code>/var/log/omarchy-install.log</code>。包清单按 base → 架构 → 平台拼接（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-pkg-defaults#L36">omarchy-pkg-defaults</a>）：<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/omarchy-base.packages">base.packages</a> 有 164 个包。</p>
+<p><strong>容易误解的地方</strong>：<code>install/</code> 和 <code>migrations/</code> 下的脚本没有 shebang，是被 source 的，不能直接执行（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md#L29">Style</a>）。</p>
+<h2 id="s4">3. CLI 路由器：<code>omarchy &lt;group&gt; &lt;cmd&gt;</code></h2>
+<h3 id="s4-1">3.1 职责与难点</h3>
+<p>591 个命令要能用空格分词的方式调用（<code>omarchy theme set</code>），要能自省（给人看的帮助、给代理看的 JSON），而且<strong>快</strong>：快捷键、菜单、shell 都在频繁调用它。</p>
+<h3 id="s4-2">3.2 原理：文件名就是路由</h3>
+<p><strong>没有注册表</strong>：每个可执行的 <code>bin/omarchy-*</code> 就是一个命令，<code>omarchy-theme-set</code> 默认路由为 <code>omarchy theme set</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/cli-router.md#L3-L18">cli-router.md</a>）。</p>
+
+<figure class="flow"><div class="flow-head">路由器的分发流程<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;路由器的分发流程&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;in&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;omarchy a b c&quot;, &quot;s&quot;: &quot;参数&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;fast&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;快速路径&quot;, &quot;s&quot;: &quot;拼接 a-b-c 逐个 stat&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;help&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;--help 守卫&quot;, &quot;s&quot;: &quot;有 --help 就不执行&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;ex&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;exec 脚本&quot;, &quot;s&quot;: &quot;剩余参数原样传入&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;slow&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;慢路径&quot;, &quot;s&quot;: &quot;读全部元数据&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;dym&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;Did you mean&quot;, &quot;s&quot;: &quot;exit 127&quot;, &quot;k&quot;: &quot;todo&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;in&quot;, &quot;b&quot;: &quot;fast&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fast&quot;, &quot;b&quot;: &quot;help&quot;, &quot;t&quot;: &quot;命中&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;help&quot;, &quot;b&quot;: &quot;ex&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;fast&quot;, &quot;b&quot;: &quot;slow&quot;, &quot;t&quot;: &quot;未命中&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;slow&quot;, &quot;b&quot;: &quot;ex&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;slow&quot;, &quot;b&quot;: &quot;dym&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 150.0}}"></div><figcaption>快速路径 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L458">resolve_direct_route</a> 只做文件存在性检查、不读任何元数据；匹配不到（别名、元数据改过的路由）才进入 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L980">resolve_route</a> 做全表最长前缀匹配。最后 <code>exec</code> 在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L1073">L1073</a>。</figcaption></figure>
+<h3 id="s4-3">3.3 契约：命令头部元数据</h3>
+<p>元数据写在文件开头的注释里，最多扫描 80 行（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L6">METADATA_SCAN_LIMIT</a>），由 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L173">register_command</a> 解析：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>键</th>
+<th>作用</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>summary</code> / <code>args</code> / <code>examples</code></td>
+<td>帮助文本，<code>examples</code> 用 <code>|</code> 分隔多个</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L3-L5">theme-set</a></td>
+</tr>
+<tr>
+<td><code>alias</code></td>
+<td>额外的调用名</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L3-L7">omarchy up</a>、<code>omarchy screenshot</code></td>
+</tr>
+<tr>
+<td><code>group</code> / <code>name</code></td>
+<td>覆盖默认路由</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-menu-share#L4-L5">omarchy share</a></td>
+</tr>
+<tr>
+<td><code>hidden=true</code></td>
+<td>能调用但不列出（149 个命令）</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-apply-system#L4-L7">apply-system</a></td>
+</tr>
+<tr>
+<td><code>requires-sudo=true</code></td>
+<td>标记需要提权</td>
+<td><code>omarchy-update</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>顶层分组列表的唯一来源是 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L27-L101">GROUP_DESCRIPTIONS</a>（73 组）。<code>omarchy commands --json</code> 输出全部命令的结构化记录，是代理发现能力的入口（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/cli-router.md#L106-L123">自省与 --check</a>）。</p>
+<p><strong>容易误解的地方</strong>：参数里只要出现 <code>--help</code>（<code>--</code> 之后的除外）就只显示帮助、绝不执行（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy#L133">remaining_has_help_flag</a>），所以给子命令传一个字面的 <code>--help</code> 需要放在 <code>--</code> 后面。</p>
+<h2 id="s5">4. Hyprland：Lua 配置与快捷键体系</h2>
+<h3 id="s5-1">4.1 职责与难点</h3>
+<p>Hyprland 新版本支持用 Lua 写配置。Omarchy 用它解决一个老问题：<strong>默认值要能随更新自动改进，而用户的修改又不能被覆盖</strong>。v3 时代默认值直接复制进用户文件，更新后要么覆盖、要么永远拿不到新默认；Lua 的 <code>require</code> 让默认值留在 <code>/usr/share/omarchy</code>，用户文件只写差异。</p>
+<h3 id="s5-2">4.2 加载顺序</h3>
+
+<figure class="flow"><div class="flow-head">~/.config/hypr/hyprland.lua 的加载顺序<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;~/.config/hypr/hyprland.lua 的加载顺序&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;u&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;hyprland.lua&quot;, &quot;s&quot;: &quot;用户入口&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;bootstrap.lua&quot;, &quot;s&quot;: &quot;设 package.path&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sw&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;开关变量&quot;, &quot;s&quot;: &quot;关默认绑定 / 手势&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;default.hypr.omarchy&quot;, &quot;s&quot;: &quot;全部默认值&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;当前主题&quot;, &quot;s&quot;: &quot;theme/hyprland.lua&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;你的 hypr.*&quot;, &quot;s&quot;: &quot;bindings · input …&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tg&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;toggles&quot;, &quot;s&quot;: &quot;运行时开关 + 显示器面板&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.05}], &quot;edges&quot;: [{&quot;a&quot;: &quot;u&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;sw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sw&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;tg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 186.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 156.0}}"></div><figcaption>后加载的覆盖先加载的。bootstrap 把 <code>package.path</code> 设成 state → config → OMARCHY_PATH（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bootstrap.lua#L33-L38">bootstrap.lua</a>），默认值在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/omarchy.lua">omarchy.lua</a> 里加载，主题覆盖在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/omarchy.lua#L34">L34</a>，用户模块在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/hypr/hyprland.lua#L22-L26">hyprland.lua L22–26</a>，最后是 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/toggles.lua#L4-L27">toggles.lua</a>——所以显示器面板的设置会赢过你写的 <code>monitors.lua</code>。</figcaption></figure>
+<p>开关变量必须写在 <code>require(&quot;default.hypr.omarchy&quot;)</code> 之前：<code>omarchy_default_bindings = false</code> 关掉全部默认绑定，<code>omarchy_preinstalled_bindings = false</code> 只关预装应用和 Web App 的绑定，<code>omarchy_default_gestures = false</code> 关手势（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/hypr/hyprland.lua#L6-L14">hyprland.lua L6–14</a>）。</p>
+<h3 id="s5-3">4.3 快捷键的 DSL</h3>
+<p>所有默认绑定由 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings.lua#L4">bindings.lua</a> 从 <code>default/hypr/bindings/</code> 加载八个文件（tiling、applications、utilities、clipboard、media、dictation、input-method、jis）。绑定函数在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua">helpers.lua</a>：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>翻译成</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>o.bind(keys, 描述, 动作)</code></td>
+<td>注册绑定，描述会出现在 <code>Super+K</code> 速查里</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L138">L138</a></td>
+</tr>
+<tr>
+<td><code>o.rebind(...)</code></td>
+<td>先 unbind 再 bind</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L154">L154</a></td>
+</tr>
+<tr>
+<td><code>{ menu = &quot;theme&quot; }</code></td>
+<td>打开某个菜单路由</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L97-L98">L97–98</a></td>
+</tr>
+<tr>
+<td><code>{ webapp = url, focus = true }</code></td>
+<td>以 App 模式打开网页，已开则聚焦</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L113-L117">L113–117</a></td>
+</tr>
+<tr>
+<td><code>{ tui = &quot;btop&quot; }</code></td>
+<td>在终端里启动一个 TUI</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L119-L123">L119–123</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>性能细节</strong>：如果动作登记在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/shortcuts">default/omarchy/shortcuts</a> 里，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L81">shell_dispatcher</a> 会把它变成 Hyprland 全局快捷键，按键直接交给常驻的 shell 进程，<strong>不 fork 任何进程</strong>；不在表里的才回退成执行命令。</p>
+<h2 id="s6">5. Quickshell 桌面与菜单</h2>
+<h3 id="s6-1">5.1 职责与难点</h3>
+<p>顶栏、菜单、通知、OSD、锁屏、剪贴板、emoji、dock、各种面板，在 v3 里是 waybar、mako、walker、hyprlock 等一堆独立程序；4.0 全部换成<strong>一个</strong>常驻的 Quickshell（QML）进程里的插件。难点是：它常驻、要省电，所以必须事件驱动；它是整个桌面，崩了或卡了就什么都不能用。</p>
+<h3 id="s6-2">5.2 结构</h3>
+
+<figure class="flow"><div class="flow-head">一个进程承载整个桌面<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一个进程承载整个桌面&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;hy&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Hyprland autostart&quot;, &quot;s&quot;: &quot;omarchy-launch-shell&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;root&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;ShellRoot&quot;, &quot;s&quot;: &quot;shell.qml&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;reg&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;PluginRegistry&quot;, &quot;s&quot;: &quot;40 个 manifest&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bar&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;bar 与 widgets&quot;, &quot;s&quot;: &quot;工作区 · 托盘 · 时钟&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;menu&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;menu&quot;, &quot;s&quot;: &quot;omarchy-menu.jsonc&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pan&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;panels / overlays&quot;, &quot;s&quot;: &quot;音频 · 网络 · 通知 · 锁屏&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;ipc&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 2.0, &quot;t&quot;: &quot;IPC&quot;, &quot;s&quot;: &quot;omarchy-shell t m&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;gs&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;全局快捷键&quot;, &quot;s&quot;: &quot;读 shortcuts 文件&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;hy&quot;, &quot;b&quot;: &quot;root&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;root&quot;, &quot;b&quot;: &quot;reg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;bar&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;menu&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;reg&quot;, &quot;b&quot;: &quot;pan&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;ipc&quot;, &quot;b&quot;: &quot;root&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;gs&quot;, &quot;b&quot;: &quot;root&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 96.0, &quot;nw&quot;: 160.0}}"></div><figcaption>启动见 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-launch-shell#L12-L21">omarchy-launch-shell</a>，它刻意设置 <code>QS_DISABLE_FILE_WATCHER=1</code>，避免包升级到一半时热重载出错。根对象 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/shell.qml#L15">ShellRoot</a>，IPC 方法表从 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/shell.qml#L1796">shell.qml L1796</a> 开始；插件种类与 manifest 字段见 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/omarchy-shell.md#L12-L46">omarchy-shell.md</a>。</figcaption></figure>
+<ul>
+<li>shell 本身就是 freedesktop 通知守护进程（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/notifications.md#L3">notifications.md</a>）。</li>
+<li>第三方插件 clone 到 <code>~/.config/omarchy/plugins/&lt;id&gt;/</code>，<strong>没有沙箱</strong>，拥有你用户的全部权限（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/omarchy-shell.md#L58-L98">第三方插件</a>）。</li>
+<li>空闲时 shell 不能 spawn 进程，由测试 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/test/shell.d/shell-idle-spawn-test.sh">shell-idle-spawn-test.sh</a> 把关。</li>
+</ul>
+<h3 id="s6-3">5.3 菜单：数据驱动</h3>
+<p>菜单是 <code>omarchy.menu</code> 插件，定义全部在一个 JSONC 文件 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/omarchy-menu.jsonc">omarchy-menu.jsonc</a> 里（约 436 个条目）。规则（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/menu.md#L21-L57">menu.md</a>）：</p>
+<ul>
+<li>key 用点号表示层级：<code>trigger.share.file</code> 是 <code>trigger.share</code> 的子项；有 <code>action</code> 的是动作，否则是子菜单。</li>
+<li><code>when</code> / <code>checked</code> / <code>disabled</code> 是 bash 条件，打开菜单时批量放进 8 个并行子 shell 求值，先用上次结果、不等待（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/menu.md#L63-L90">Guards</a>）。</li>
+<li><code>aliases</code> 是可直接 summon 的短名，快捷键用的就是它们（如 <code>theme</code> → <code>appearance.theme</code>，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/omarchy-menu.jsonc#L89">L89</a>）。</li>
+<li>用户的 <code>~/.config/omarchy/extensions/omarchy-menu.jsonc</code> 按 key 覆盖默认，新 id 追加到末尾（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/menu/MenuModel.js#L92">mergeMenuSources</a>）。</li>
+</ul>
+
+<div class="callout analogy"><div class="callout-title">类比 · 菜单是一张点菜单，命令是后厨的工位</div><p>菜单上每一行只是“名字 + 去哪个工位”：<code>action</code> 里写的就是某个 <code>omarchy-*</code> 命令。快捷键、菜单、CLI 是三个点菜窗口，最后都落到同一个工位上。所以给系统加一个功能，正确的顺序是先在 <code>bin/</code> 做出工位（命令），再在菜单里加一行、需要的话绑一个快捷键——而不是把逻辑写进菜单或快捷键里。</p>
+</div>
+<h2 id="s7">6. 主题流水线</h2>
+<h3 id="s7-1">6.1 职责与难点</h3>
+<p><strong>职责</strong>：<code>omarchy theme set &lt;名字&gt;</code> 之后，桌面边框、shell、四种终端、btop、Neovim、浏览器、GTK、VS Code、Obsidian、Slack，以及 Claude Code / OpenCode / Pi / Hermes 等代理的 TUI 全部换色。<strong>难点</strong>：二十多个应用接受主题的方式各不相同（重载、信号、文件 watch、策略文件）；切换要原子（不能出现一半新一半旧）；外部下载的主题可能夹带能执行的代码。</p>
+<h3 id="s7-2">6.2 数据：调色板 + 模板</h3>
+<ul>
+<li>每个主题目录有一个语义调色板 <code>colors.toml</code>（accent、四级背景、四级前景、命名色及 bright_*，例如 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/themes/tokyo-night/colors.toml">tokyo-night</a>），可选 <code>backgrounds/</code>、<code>preview.png</code>、<code>icons.theme</code>、手写的 <code>neovim.lua</code> / <code>vscode.json</code>、<code>shell.&lt;section&gt;.toml</code> 等（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/theming.md#L9">theming.md</a>）。内置 23 个主题，其中 3 个浅色。</li>
+<li><code>default/themed/</code> 下 23 个模板，占位符 <code>{{ background }}</code>、<code>{{ accent_rgb }}</code>、<code>{{ mix a b 15% }}</code> 等（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/theming.md#L136-L181">占位符</a>），由 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set-templates#L319">render_templates</a> 用一个 awk 进程全部渲染。主题目录里已有同名文件就跳过模板，所以<strong>手写文件优先</strong>；用户模板 <code>~/.config/omarchy/themed/*.tpl</code> 先于内置模板处理。</li>
+</ul>
+<h3 id="s7-3">6.3 切换过程</h3>
+
+<div class="stepper"><div class="st-head"><span class="st-title">▶ omarchy-theme-set 的五个阶段</span><span class="st-count"></span><span class="st-ctrl"><button type="button" class="btn st-play" data-play="▶ 自动播放" data-pause="❚❚ 暂停">▶ 自动播放</button><button type="button" class="btn st-prev">← 上一步</button><button type="button" class="btn primary st-next">下一步 →</button></span></div><div class="st-dots"></div><div class="st-diagram"><figure class="flow"><div class="flow-body" data-flow="{&quot;title&quot;: &quot;&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;st&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;staging&quot;, &quot;s&quot;: &quot;next-theme 目录&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;tp&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;渲染模板&quot;, &quot;s&quot;: &quot;colors.toml × *.tpl&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sw&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;原子替换&quot;, &quot;s&quot;: &quot;mv next → theme&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sh&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;shell 换色&quot;, &quot;s&quot;: &quot;IPC themeTransition&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;vis&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;可见层&quot;, &quot;s&quot;: &quot;终端 · btop · Hypr&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;oth&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;其余应用&quot;, &quot;s&quot;: &quot;GTK · 浏览器 · VS Code&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.1}], &quot;edges&quot;: [{&quot;a&quot;: &quot;st&quot;, &quot;b&quot;: &quot;tp&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;tp&quot;, &quot;b&quot;: &quot;sw&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sw&quot;, &quot;b&quot;: &quot;sh&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sh&quot;, &quot;b&quot;: &quot;vis&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;vis&quot;, &quot;b&quot;: &quot;oth&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 180.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 150.0}}"></div></figure></div><div class="st-body"><div class="step" data-hl="st"><div class="step-title">1. 组装 staging</div><p>加锁（<code>flock</code>，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L398-L399">L398–399</a>），清空 <code>next-theme</code>，复制内置主题，再叠加 <code>~/.config/omarchy/themes/&lt;名字&gt;/</code>。如果用户主题目录里有 <code>.git</code>（即通过 <code>omarchy theme install</code> 装的），会<strong>丢弃</strong>所有 <code>.lua</code>、终端配置和 <code>vscode.json</code>，名单见 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L35">INSTALLED_THEME_DENIED</a>——这些文件都能执行代码。</p>
+</div><div class="step" data-hl="tp"><div class="step-title">2. 渲染模板</div><p><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set-templates">omarchy-theme-set-templates</a> 先用 <code>omarchy-theme-color --all</code> 解析调色板（含派生色），再把用户模板和内置模板渲染进 staging 目录。</p>
+</div><div class="step" data-hl="sw"><div class="step-title">3. 原子替换</div><p><code>mv next-theme theme</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L490">L490</a>），再写 <code>theme.name</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L501">L501</a>）。读到当前主题的程序永远看到完整的一套。</p>
+</div><div class="step" data-hl="sw,sh"><div class="step-title">4. shell 先换</div><p>调色板 base64 后经 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L215">set_theme_background</a> 用 IPC <code>background themeTransition</code> 交给 shell，壁纸和颜色一起过渡（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/background/Background.qml#L155">applyPendingTheme</a>）。</p>
+</div><div class="step" data-hl="vis,oth"><div class="step-title">5. 其余应用并行</div><p>释放锁后分两组并行：可见层（终端、btop、foot、tmux、Hyprland 重载，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L526-L534">L526–534</a>）和其余应用（GNOME、Qt、浏览器、VS Code、Obsidian、Slack、各代理、fcitx5、键盘 RGB，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L539-L553">L539–553</a>），最后执行用户 hook <code>theme-set</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L601">L601</a>）。</p>
+</div></div></div>
+<h3 id="s7-4">6.4 各应用怎么收到新主题</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>应用</th>
+<th>机制</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hyprland</td>
+<td><code>hyprctl reload</code>，重新 require 当前主题的 <code>hyprland.lua</code></td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-restart-hyprctl">restart-hyprctl</a></td>
+</tr>
+<tr>
+<td>Quickshell</td>
+<td>IPC 推送调色板</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/Commons/Color.qml">Color.qml</a></td>
+</tr>
+<tr>
+<td>Alacritty / Kitty / Ghostty</td>
+<td><code>touch</code> 触发 watch / <code>SIGUSR1</code> / <code>SIGUSR2</code></td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-restart-terminal">restart-terminal</a></td>
+</tr>
+<tr>
+<td>btop</td>
+<td><code>SIGUSR2</code></td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-restart-btop">restart-btop</a></td>
+</tr>
+<tr>
+<td>Chromium 系浏览器</td>
+<td>写 root 拥有的 managed policy <code>color.json</code></td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set-browser">theme-set-browser</a></td>
+</tr>
+<tr>
+<td>GTK / GNOME</td>
+<td><code>gsettings</code> 设 color-scheme 和图标主题</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set-gnome">theme-set-gnome</a></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>容易误解的地方</strong>：终端配置文件第一行只是 <code>import</code> 当前主题生成的文件（如 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/alacritty/alacritty.toml#L1">alacritty.toml L1</a>）。终端的配色由主题管，不要在终端配置里直接改颜色——下次换主题就会被覆盖；要改就改主题或写一个 themed 模板。</p>
+<h2 id="s8">7. 更新、迁移与快照</h2>
+<h3 id="s8-1">7.1 职责与难点</h3>
+<p>滚动发行版的更新偶尔会坏；有些修复需要改用户已经存在的文件；更新时 Hyprland 和 shell 都在运行，不能在包替换到一半时重载。</p>
+<h3 id="s8-2">7.2 <code>omarchy update</code> 的时间线</h3>
+
+<figure class="flow"><div class="flow-head">omarchy update 做了什么<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;omarchy update 做了什么&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;lk&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;加锁与检查&quot;, &quot;s&quot;: &quot;空间 ≥ 10GiB&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;sn&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;快照&quot;, &quot;s&quot;: &quot;snapper，保留 5 个&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;pk&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;pacman -Syu&quot;, &quot;s&quot;: &quot;经守卫放行&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;mg&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;迁移&quot;, &quot;s&quot;: &quot;按时间戳执行&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rs&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;重启服务&quot;, &quot;s&quot;: &quot;总是重启 shell&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hk&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;hook 与 AUR&quot;, &quot;s&quot;: &quot;post-update&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;bv&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;启动验证&quot;, &quot;s&quot;: &quot;x86 上是 no-op&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;rb&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;提示重启&quot;, &quot;s&quot;: &quot;内核等更新过&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;lk&quot;, &quot;b&quot;: &quot;sn&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;sn&quot;, &quot;b&quot;: &quot;pk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;pk&quot;, &quot;b&quot;: &quot;mg&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;mg&quot;, &quot;b&quot;: &quot;rs&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;rs&quot;, &quot;b&quot;: &quot;hk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;hk&quot;, &quot;b&quot;: &quot;bv&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;bv&quot;, &quot;b&quot;: &quot;rb&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 150.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 126.0}}"></div><figcaption>全部 20 步在 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update">bin/omarchy-update</a>：快照 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L89">L89</a>、包事务 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L101">L101</a>、迁移 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L107">L107</a>、hook <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L121">L121</a>。dev 通道才会额外 <code>git pull --ff-only</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update-dev#L7-L27">update-dev</a>）。</figcaption></figure>
+<ul>
+<li><strong>为什么直接 <code>sudo pacman -Syu</code> 会被拒绝</strong>：ALPM 钩子 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/libalpm/hooks/00-omarchy-update-guard.hook">00-omarchy-update-guard.hook</a> 在事务前运行 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update-pacman-guard#L8">pacman-guard</a>，只有带 <code>OMARCHY_UPDATE_PACMAN=1</code>（由 <code>omarchy update</code> 设置）或 <code>OMARCHY_ALLOW_DIRECT_PACMAN=1</code> 才放行——绕过会跳过快照和迁移。</li>
+<li><strong>pacman 跑在 PID 1 的 scope 里</strong>（<code>systemd-run --scope</code>，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update-pacman#L16-L25">update-pacman</a>），这样 systemd 重新执行自己时不会把更新杀掉。</li>
+<li><code>omarchy-settings</code> 升级期间，一对 ALPM 钩子先暂停、后恢复 Hyprland 的自动重载（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/update-process.md#L109">update-process.md</a>）。</li>
+</ul>
+<h3 id="s8-3">7.3 迁移</h3>
+<ul>
+<li>格式：<code>migrations/&lt;unix 时间戳&gt;.sh</code>，没有 shebang，以用户身份执行，必须幂等；共 249 个。</li>
+<li>运行器 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-migrate">omarchy-migrate</a> 先等 pacman 锁，再按文件名顺序逐个 <code>bash -euo pipefail</code>，成功后在 <code>~/.local/state/omarchy/migrations/</code> 留标记（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-migrate#L88-L97">L88–97</a>）。</li>
+<li>改用户文件的迁移遵循“<strong>只有当你的文件还是出厂原样才替换</strong>”：例如 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/migrations/1781485962.sh#L91-L105">这个迁移</a> 先比较 sha256。</li>
+</ul>
+
+<div class="callout analogy"><div class="callout-title">类比 · 装修队只换你没动过的家具</div><p>迁移像物业派来的装修队：每次进门前先看一眼清单（<code>~/.local/state/omarchy/migrations/</code> 里的标记），做过的活不再做；要换家具时先核对它还是不是交房时那一件（比较 sha256），你自己换过的就不碰。所以更新后某个默认改进没生效，往往正是因为你改过那个文件——这时候用 <code>omarchy-refresh-config</code> 拿一份新默认值，再把自己的改动并回去。</p>
+</div>
+<ul>
+<li>登录时只通知、不在后台静默执行（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/file-layout.md#L304-L313">migrate-notify</a>）。</li>
+</ul>
+<h3 id="s8-4">7.4 快照与回滚</h3>
+<p>snapper 只给根分区配置，<strong>只保留 5 个、没有定时快照</strong>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/snapper/root#L7-L10">snapper/root</a>），每次更新前自动建一个；<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/config/snapper.sh#L24">limine-snapper-sync</a> 让快照出现在启动菜单里。Limine 菜单 1 秒后自动进入（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/limine/limine.conf#L2">limine.conf</a>），开机时按任意键调出。</p>
+
+<div class="callout warn"><div class="callout-title">注意 · 快照不包括 /home</div><p>回滚只恢复系统，不恢复 <code>~/.config</code>；迁移标记也在家目录里，所以回滚后再更新，<strong>已经跑过的迁移不会重跑</strong>。改 <code>~/.config/uwsm/env.d/</code> 写错导致登录后被踢回登录界面，快照也救不了——要进 TTY 把坏文件移走。</p>
+</div>
+<h2 id="s9">8. “Agentic”：AI 代理是怎么接进系统的</h2>
+<p>Omarchy 自称“agentic”，在源码里具体是五件事：</p>
+<ol>
+<li><strong>一份给代理读的 skill</strong>：<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/agents/skills/omarchy/SKILL.md">SKILL.md</a> 规定 <code>/usr/share/omarchy/</code> 只读，给出提权规则（有终端用 sudo、没有用 pkexec），教代理用 <code>omarchy commands --json</code> 发现能力、改配置前先备份、改完用 <code>hyprctl configerrors</code> 自检，refresh 前必须征得用户同意。</li>
+<li><strong>装给六家代理</strong>：<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-provision-user#L87-L101">provision-user</a> 把它软链进 <code>~/.claude/skills</code>、<code>~/.codex/skills</code>、<code>~/.gemini/config/skills</code>、<code>~/.pi/agent/skills</code>、<code>~/.hermes/skills</code> 和通用的 <code>~/.agents/skills</code>。</li>
+<li><strong>机器可读的 CLI</strong>：每个命令的 summary/args/examples 都能用 JSON 导出（第 3 章）。</li>
+<li><strong>代理工具链命令</strong>：<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-agent">omarchy-agent</a>（启动默认代理，<code>--local</code> 用本地模型）、多订阅账号切换、统一的 <code>~/.agents/AGENTS.md</code>、用量面板（约 23 个用量采集器，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/agent-usage-collectors.md#L3">agent-usage-collectors.md</a>）、本地模型（外部的 <code>omarchy-local-ai</code> 包，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/local-models.md#L3-L12">local-models.md</a>）。</li>
+<li><strong>主题延伸到代理</strong>：Claude Code、Pi、Hermes、T3 Code 都有主题模板（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L542-L545">L542–545</a>）。</li>
+</ol>
+<p>代理 CLI 本身（claude、codex、opencode 等 23 个）通过 mise 懒安装、每 4 小时自动更新（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/etc/mise/conf.d/omarchy-tools.toml#L12-L20">omarchy-tools.toml</a>）。所以<strong>不要</strong>用 <code>claude update</code> 这类自带更新器，用 <code>omarchy update</code>。</p>
+<h2 id="s10">9. 功能指南：用好这个 OS</h2>
+<h3 id="s10-1">9.1 心智模型：一切从键盘开始</h3>
+<p>手册的原话是“Everything in Omarchy happens via the keyboard — EVERYTHING!”。快捷键按 Super 键的“平面”排布（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/manual/07-hotkeys.md">manual/07</a>）：</p>
+
+<figure class="flow"><div class="flow-head">快捷键的四个平面<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;快捷键的四个平面&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Super + 键&quot;, &quot;s&quot;: &quot;窗口 · 工作区 · 核心菜单&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;ss&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Super + Shift + 键&quot;, &quot;s&quot;: &quot;打开应用&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;sc&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Super + Ctrl + 键&quot;, &quot;s&quot;: &quot;面板与系统菜单&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.05}, {&quot;id&quot;: &quot;sca&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;Super + Ctrl + Alt + 键&quot;, &quot;s&quot;: &quot;快捷动作 · 通知卡&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.1}, {&quot;id&quot;: &quot;alt&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;再加 Alt&quot;, &quot;s&quot;: &quot;同一功能的变体&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;ss&quot;, &quot;b&quot;: &quot;alt&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 200.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 168.0}}"></div><figcaption>规则是“按功能选平面，加 Alt 得到变体”：<code>Super+Shift+B</code> 浏览器，<code>Super+Shift+Alt+B</code> 隐私窗口（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/applications.lua#L6-L7">applications.lua L6–7</a>）。<code>Super+K</code> 随时显示当前所有绑定。</figcaption></figure>
+<p><strong>最重要的三个键</strong>：<code>Super+Space</code> 打开菜单（可以直接打字过滤，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/utilities.lua#L1">utilities.lua L1</a>）；<code>Super+K</code> 看快捷键速查；<code>Super+Escape</code> 系统菜单（挂起、重启、关机）。</p>
+<h3 id="s10-2">9.2 快捷键速查（从源码整理）</h3>
+<p><strong>窗口与工作区</strong>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/tiling.lua">tiling.lua</a>）</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>按键</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Super+W</code> / <code>Super+Q</code></td>
+<td>关闭窗口（应用真正退出）</td>
+</tr>
+<tr>
+<td><code>Super+方向键</code> · <code>Super+Shift+方向键</code></td>
+<td>移动焦点 · 与相邻窗口交换</td>
+</tr>
+<tr>
+<td><code>Super+1…0</code> · <code>Super+Shift+数字</code></td>
+<td>切换工作区 · 把窗口送过去（每个显示器各有 1–10）</td>
+</tr>
+<tr>
+<td><code>Super+Tab</code> / <code>Super+Ctrl+Tab</code></td>
+<td>下一个 / 上次用过的工作区</td>
+</tr>
+<tr>
+<td><code>Super+T</code> · <code>Super+F</code> · <code>Super+Alt+F</code></td>
+<td>平铺/浮动 · 全屏 · 全宽（保留顶栏）</td>
+</tr>
+<tr>
+<td><code>Super+J</code> · <code>Super+L</code></td>
+<td>切换分割方向 · 循环工作区布局 dwindle → scrolling → floating</td>
+</tr>
+<tr>
+<td><code>Super+</code> 反引号</td>
+<td>Quake 下拉控制台（第一次打开自动启动默认 AI 代理，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/qconsole.lua#L29">qconsole.lua</a>）</td>
+</tr>
+<tr>
+<td><code>Super+S</code> · <code>Super+M</code></td>
+<td>scratchpad · 最小化到 dock（浮动工作区）</td>
+</tr>
+<tr>
+<td><code>Super+G</code></td>
+<td>窗口编组（标签页式）</td>
+</tr>
+<tr>
+<td><code>Super+-</code> / <code>Super+=</code></td>
+<td>调整宽度（加 Alt 细调、加 Ctrl 粗调）</td>
+</tr>
+<tr>
+<td><code>Ctrl+Alt+Delete</code></td>
+<td><strong>关闭所有窗口</strong>——不是任务管理器！</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>应用</strong>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/applications.lua">applications.lua</a>）：<code>Super+Return</code> 终端（在当前终端的目录打开）、<code>Super+Alt+Return</code> tmux、<code>Super+Shift+B</code> 浏览器、<code>Super+Shift+F</code> 文件管理器、<code>Super+Shift+N</code> 编辑器、<code>Super+Shift+T</code> btop、<code>Super+Shift+/</code> 1Password、<code>Super+Shift+O</code> Obsidian、<code>Super+Shift+Ctrl+A</code> 默认 AI 代理，以及一组 Web App（<code>Super+Shift+A</code> ChatGPT、<code>Super+Shift+E</code> HEY 邮箱、<code>Super+Shift+Y</code> YouTube…）。</p>
+<p><strong>面板与工具</strong>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/utilities.lua">utilities.lua</a>）</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>按键</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Super+Ctrl+A / B / N / D / P</code></td>
+<td>音频 / 蓝牙 / 网络 / 显示 / 电源面板</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+V</code></td>
+<td>剪贴板历史（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/clipboard.lua#L51">clipboard.lua</a>）</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+E</code></td>
+<td>Emoji</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+C</code> · <code>Print</code></td>
+<td>截屏菜单 · 直接截图</td>
+</tr>
+<tr>
+<td><code>Alt+Print</code></td>
+<td>录屏开始/停止</td>
+</tr>
+<tr>
+<td><code>Super+Print</code> · <code>Super+Ctrl+Print</code></td>
+<td>取色 · OCR 识别屏幕文字</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+S</code></td>
+<td>LocalSend 分享（类似 AirDrop）</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+R</code></td>
+<td>设置提醒</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+O</code> · <code>Super+Ctrl+I</code></td>
+<td>Toggle 菜单 · 防休眠（Stay awake）</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+T</code> · <code>Super+Ctrl+W</code></td>
+<td>主题选择器 · 壁纸选择器</td>
+</tr>
+<tr>
+<td><code>Super+Ctrl+L</code></td>
+<td>锁屏</td>
+</tr>
+<tr>
+<td><code>Super+,</code> · <code>Super+Ctrl+Alt+,</code></td>
+<td>处理最新通知 · 勿扰</td>
+</tr>
+<tr>
+<td><code>Alt+Space</code> · 按住右 Alt</td>
+<td>听写开关 · 按住说话（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/dictation.lua#L15-L18">dictation.lua</a>）</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="callout warn"><div class="callout-title">注意 · 手册与代码对不上的地方</div><p><code>Super+M</code>、<code>Super+I</code>（切换输入法）、<code>Super+Shift+D</code>（lazydocker，装了才有）都绑定了但 manual/07 的表里没有；manual/06 说有 22 个主题，实际 <a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/themes">themes/</a> 有 23 个；manual/13 说 Toggle 菜单里有 Suspend 和 Herdr 主题同步，实际菜单只有 idle、通知、夜灯、屏保、崩溃捕获（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/omarchy-menu.jsonc#L161-L171">L161–171</a>），另外两个只能用 CLI。以 <code>Super+K</code> 显示的为准。</p>
+</div>
+<h3 id="s10-3">9.3 按场景整理的内置功能</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>功能</th>
+<th>怎么用</th>
+<th>容易漏掉的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>复制粘贴</td>
+<td>统一剪贴板</td>
+<td><code>Super+C/V</code> 在终端里自动换成 <code>Ctrl+Shift+C/V</code></td>
+<td>历史最多 500 条，存成<strong>明文</strong> <code>~/.local/state/omarchy/clipboard-history.json</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/clipboard/Clipboard.qml#L41">L41</a>）；密码管理器复制的内容不入历史（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/clipboard/capture.sh#L15">capture.sh</a>）</td>
+</tr>
+<tr>
+<td>读截图里的字</td>
+<td>OCR</td>
+<td><code>Super+Ctrl+Print</code></td>
+<td>设 <code>OMARCHY_OCR_LANGS=chi_sim+eng</code> 可识别中文（需要装 <code>tesseract-data-chi_sim</code>，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-capture-text#L21">capture-text</a>）</td>
+</tr>
+<tr>
+<td>截图 / 录屏</td>
+<td>Omasnap / gpu-screen-recorder</td>
+<td><code>Print</code>、<code>Alt+Print</code></td>
+<td>录屏输出目录 <code>~/Videos</code> 必须事先存在（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-capture-screenrecording#L29">L29</a>）；录完自动响度归一化</td>
+</tr>
+<tr>
+<td>打字太慢</td>
+<td>听写</td>
+<td>按住右 Alt 说话</td>
+<td>后端可选 Superwhisper / Voxtype / Hex（<em>Setup &gt; Defaults &gt; Dictation</em>）</td>
+</tr>
+<tr>
+<td>定时提醒</td>
+<td>提醒</td>
+<td><code>omarchy reminder 25 &quot;check CI&quot;</code></td>
+<td>底层是 systemd 用户定时器（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-reminder#L194">L194</a>），shell 重启不影响</td>
+</tr>
+<tr>
+<td>演示或看构建</td>
+<td>防休眠 / 勿扰</td>
+<td><code>Super+Ctrl+I</code> / <code>Super+Ctrl+Alt+,</code></td>
+<td>空闲时间在 <code>shell.json</code>：屏保 150 秒、锁屏 300 秒（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/omarchy/shell.json#L3-L6">shell.json</a>）</td>
+</tr>
+<tr>
+<td>常用网站</td>
+<td>Web App</td>
+<td><em>Install &gt; Web App</em></td>
+<td>支持非交互：<code>omarchy-webapp-install &quot;Linear&quot; https://linear.app &lt;图标URL&gt;</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-webapp-install#L4">L4</a>）</td>
+</tr>
+<tr>
+<td>常用 TUI</td>
+<td>TUI App</td>
+<td><em>Install &gt; TUI</em></td>
+<td>任何命令行工具都能变成有图标、有快捷键的“应用”（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-tui-install#L4">L4</a>）</td>
+</tr>
+<tr>
+<td>开发布局</td>
+<td>tmux 布局函数</td>
+<td><code>tdl</code>、<code>tds</code>、<code>tsl 4 cx</code></td>
+<td><code>tdl</code> = 编辑器 + AI + 终端（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/bash/fns/tmux#L3">fns/tmux</a>）；<code>ga &lt;branch&gt;</code> 在 <code>../&lt;repo&gt;--&lt;branch&gt;</code> 建 worktree（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/bash/fns/worktrees#L2">worktrees</a>）</td>
+</tr>
+<tr>
+<td>文件互传</td>
+<td>LocalSend / Taildrop</td>
+<td><code>Super+Ctrl+S</code></td>
+<td>防火墙默认只开放 LocalSend 端口；跨网络用 <code>omarchy tailscale send</code></td>
+</tr>
+<tr>
+<td>Windows 软件</td>
+<td>Windows 虚拟机</td>
+<td><em>Install &gt; Windows</em></td>
+<td>基于 dockur/windows + RDP；<em>Remove &gt; Windows</em> 会删掉整个虚拟盘</td>
+</tr>
+<tr>
+<td>跑本地模型</td>
+<td>本地 AI</td>
+<td><code>omarchy agent local use best</code></td>
+<td>Podman 运行，OpenAI 兼容接口 <code>127.0.0.1:11435</code>，不联网</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s10-4">9.4 shell 里的小工具</h3>
+<p><code>ff</code>（fzf + bat 预览）、<code>eff</code>（用编辑器打开选中的文件）、<code>cd</code>（zoxide 增强）、<code>ls</code>（eza）、<code>n</code>（<code>nvim .</code>）、<code>t</code>（tmux）、<code>a</code>（在当前目录起默认代理）。别名 <code>c</code> / <code>cx</code> / <code>cy</code> 分别是 opencode、claude、codex 的<strong>自动批准</strong>模式（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/bash/aliases#L46-L58">aliases</a>）——方便，但意味着代理执行命令不再逐条确认。</p>
+<h3 id="s10-5">9.5 给开发者的十个习惯</h3>
+<ol>
+<li><strong>一切先按 <code>Super+Space</code> 再打字</strong>；用熟的菜单项在 <code>~/.config/hypr/bindings.lua</code> 里绑成快捷键（<code>{ menu = &quot;&lt;alias&gt;&quot; }</code>）。</li>
+<li><strong>一个项目一个工作区</strong>，代码工作区用 scrolling 布局（<code>Super+L</code>），布局按工作区记住、重启后保留。</li>
+<li><strong>用 <code>Super+Ctrl+V</code> 剪贴板历史</strong>代替来回切窗口复制。</li>
+<li><strong>把 <code>Super+</code> 反引号当随叫随到的 AI 控制台</strong>。</li>
+<li><strong><code>tdl</code> / <code>tsl</code> + <code>ga</code> worktree</strong>：一键搭好编辑器 + 代理 + shell，并行任务各自隔离在 worktree 里。</li>
+<li><strong>常用 SaaS 都做成 Web App 并绑快捷键</strong>，带 <code>focus = true</code> 的是单实例。</li>
+<li><strong>说比打快</strong>：用听写写 commit message、PR 描述和给代理的 prompt。</li>
+<li><strong>长任务挂提醒</strong>（<code>omarchy reminder</code> 可以放在脚本末尾），看构建时开 Stay awake。</li>
+<li><strong>TUI 都放在快捷键上</strong>：btop、lazygit、lazydocker，自己的工具用 <code>omarchy-tui-install</code>。</li>
+<li><strong>把定制交给代理，但保持可回滚</strong>：代理已经装好了 Omarchy skill；先用 plan 模式；<code>~/.config</code> 纳入 git；给代理开免密 sudo 时只选 15 分钟或 1 小时。</li>
+</ol>
+<h3 id="s10-6">9.6 从 Mac / Windows 过来</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>原来的</th>
+<th>Omarchy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Spotlight / 开始菜单</td>
+<td><code>Super+Space</code></td>
+</tr>
+<tr>
+<td>Cmd+Tab / Alt+Tab</td>
+<td><code>Alt+Tab</code> 只在当前工作区内切窗口；跨应用用 <code>Super+数字</code></td>
+</tr>
+<tr>
+<td>虚拟桌面 / Spaces</td>
+<td>每个显示器 10 个工作区</td>
+</tr>
+<tr>
+<td>Cmd+Shift+4 / Win+Shift+S</td>
+<td><code>Print</code>，或 <code>Super+Ctrl+C</code> 截屏菜单</td>
+</tr>
+<tr>
+<td>Win+V 剪贴板历史</td>
+<td><code>Super+Ctrl+V</code></td>
+</tr>
+<tr>
+<td>Live Text / 截图识字</td>
+<td><code>Super+Ctrl+Print</code></td>
+</tr>
+<tr>
+<td>AirDrop</td>
+<td><code>Super+Ctrl+S</code>（LocalSend）</td>
+</tr>
+<tr>
+<td>控制中心</td>
+<td><code>Super+Ctrl+A / N / B / D / P</code> 各面板</td>
+</tr>
+<tr>
+<td>Amphetamine / Caffeine</td>
+<td><code>Super+Ctrl+I</code></td>
+</tr>
+<tr>
+<td>活动监视器 / 任务管理器</td>
+<td><code>Super+Shift+T</code>（btop）；<code>Ctrl+Alt+Del</code> 在这里是关闭所有窗口</td>
+</tr>
+<tr>
+<td>系统设置</td>
+<td>菜单 <em>Setup</em>（直接打开对应配置文件）</td>
+</tr>
+<tr>
+<td>软件更新</td>
+<td><code>omarchy update</code>（自动先做快照）</td>
+</tr>
+<tr>
+<td>Time Machine（系统部分）</td>
+<td>每次更新前的 snapper 快照（不含家目录）</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="s11">10. 定制与维护</h2>
+<h3 id="s11-1">10.1 我想改 X → 改哪个文件</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>想改什么</th>
+<th>改哪里</th>
+<th>命令 / 菜单</th>
+<th>更新会不会覆盖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>快捷键</td>
+<td><code>~/.config/hypr/bindings.lua</code>（<code>o.bind</code> / <code>o.rebind</code> / <code>hl.unbind</code>）</td>
+<td><em>Setup &gt; Keyboard &gt; Keybindings</em></td>
+<td>不会</td>
+</tr>
+<tr>
+<td>键盘布局、触控板</td>
+<td><code>~/.config/hypr/input.lua</code></td>
+<td><em>Setup &gt; Input</em></td>
+<td>不会</td>
+</tr>
+<tr>
+<td>间隙、圆角、动画、默认布局</td>
+<td><code>~/.config/hypr/looknfeel.lua</code></td>
+<td><em>Setup &gt; Config</em></td>
+<td>不会</td>
+</tr>
+<tr>
+<td>开机自启</td>
+<td><code>~/.config/hypr/autostart.lua</code>（<code>o.launch_on_start</code>）</td>
+<td>—</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>显示器缩放</td>
+<td>显示器面板（存在 state 里，优先于 <code>monitors.lua</code>）</td>
+<td><code>Super+/</code></td>
+<td>不会</td>
+</tr>
+<tr>
+<td>顶栏布局、时钟格式</td>
+<td><code>~/.config/omarchy/shell.json</code></td>
+<td><code>omarchy bar set …</code>，<code>omarchy bar defaults</code> 恢复</td>
+<td>不会；但有了自己的 <code>shell.json</code> 后<strong>不再合并</strong>新的默认组件</td>
+</tr>
+<tr>
+<td>改内置顶栏组件</td>
+<td><code>omarchy plugin clone omarchy.clock</code></td>
+<td>克隆后对原 id 的调用会路由到你的副本</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>菜单加项</td>
+<td><code>~/.config/omarchy/extensions/omarchy-menu.jsonc</code></td>
+<td>—</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>自建或微调主题</td>
+<td><code>~/.config/omarchy/themes/&lt;名字&gt;/</code></td>
+<td>与内置同名时叠加在内置主题之上</td>
+<td>不会；但 <code>omarchy theme install</code> 遇到同名目录会先 <code>rm -rf</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-install#L52">L52</a>）</td>
+</tr>
+<tr>
+<td>给其他应用上主题色</td>
+<td><code>~/.config/omarchy/themed/&lt;文件&gt;.tpl</code></td>
+<td>换一次主题生效</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>环境变量（截图目录等）</td>
+<td><code>~/.config/uwsm/env.d/&lt;文件&gt;</code></td>
+<td>重新登录</td>
+<td>不会；<strong>写错会登录失败</strong></td>
+</tr>
+<tr>
+<td>中文字形</td>
+<td>fontconfig</td>
+<td><code>omarchy font cjk sc</code>（默认是日文字形）</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>中文输入法</td>
+<td>fcitx5</td>
+<td><code>omarchy setup input pinyin</code>，<code>Super+I</code> 切换</td>
+<td>不会</td>
+</tr>
+<tr>
+<td>自定义 pacman 仓库</td>
+<td><code>~/.config/omarchy/hooks/pre-refresh-pacman.d/</code></td>
+<td>直接改 <code>/etc/pacman.conf</code> 会被整文件替换</td>
+<td>放 hook 里才持久</td>
+</tr>
+<tr>
+<td>更新后自动做事</td>
+<td><code>~/.config/omarchy/hooks/post-update.d/</code></td>
+<td><code>omarchy hook install post-update &lt;文件&gt;</code></td>
+<td>不会</td>
+</tr>
+</tbody>
+</table></div>
+<p>hook 是用 <code>bash &quot;$hook&quot;</code> 执行的（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-hook#L26-L39">omarchy-hook</a>），所以不需要可执行位，但 shebang 会被忽略——写 Python 要用 bash 包一层。</p>
+<h3 id="s11-2">10.2 会覆盖你配置的命令</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>命令</th>
+<th>范围</th>
+<th>有没有备份</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>omarchy-refresh-config &lt;文件&gt;</code></td>
+<td>单个文件</td>
+<td>有，<code>.bak.&lt;时间戳&gt;</code>，内容没变则删除（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-refresh-config#L20-L39">L20–39</a>）</td>
+</tr>
+<tr>
+<td><em>Update &gt; Config &gt; Hyprland</em></td>
+<td>7 个 hypr 文件</td>
+<td>有</td>
+</tr>
+<tr>
+<td><code>omarchy refresh shell</code></td>
+<td><code>shell.json</code></td>
+<td>有</td>
+</tr>
+<tr>
+<td><code>omarchy-font-set</code></td>
+<td>原地 <code>sed -i</code> 改终端字体行</td>
+<td>无（并且会把 Stow 软链变成普通文件）</td>
+</tr>
+<tr>
+<td><code>omarchy theme install</code></td>
+<td>同名主题目录</td>
+<td>无，先 <code>rm -rf</code></td>
+</tr>
+<tr>
+<td><code>omarchy reinstall configs</code></td>
+<td>所有种子配置 + Limine + Plymouth</td>
+<td><strong>无</strong></td>
+</tr>
+<tr>
+<td><code>omarchy reinstall</code></td>
+<td>包重装 + 回到 stable + 重置配置</td>
+<td><strong>无</strong></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s11-3">10.3 维护习惯</h3>
+<ol>
+<li><strong>只用 <code>omarchy update</code></strong>，不要直接 <code>pacman -Syu</code> / <code>yay -Syu</code>；保持 stable 通道（它的 Arch 镜像比上游晚一个月，换来的是稳定）。</li>
+<li>更新输出里出现 “boot files did not pass verification” 时<strong>不要重启</strong>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update#L149-L154">L149–154</a>）。</li>
+<li>出现 <code>.bak.&lt;时间戳&gt;</code> 文件时 diff 一下，把自己的改动并回去。</li>
+<li>高风险改动（env.d、内核参数、换通道、大量 AUR 包）之前：<code>omarchy-snapshot create</code>，并把 dotfiles commit 一次——快照只有 5 个名额，也不含家目录。</li>
+<li>用 git 管理 <code>~/.config/hypr/</code>、<code>~/.config/omarchy/</code>、<code>~/.config/uwsm/env.d/</code>、<code>~/.bashrc</code>；不要纳入 <code>~/.local/state/omarchy/</code>。用 Stow 软链的话，注意 <code>shell.json</code> 和终端配置会被命令原子重写成普通文件，定期 <code>stow --adopt</code> 回收。</li>
+<li>出问题时从轻到重：<em>Update &gt; Hardware</em> 重启单个硬件 → <code>omarchy-restart-shell</code> → 单文件 refresh → 启动菜单选快照回滚 → <code>omarchy-debug</code> 去 Discord 求助 → <code>omarchy reinstall</code>。</li>
+</ol>
+
+<div class="callout key"><div class="callout-title">要点 · 安全默认值</div><ul>
+<li>防火墙拒绝所有入站，只开放 LocalSend 端口；SSH 默认关闭，在 <em>Setup &gt; Security &gt; SSHD</em> 打开并限速（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/config/firewall.sh">firewall.sh</a>）。</li>
+<li>sudo 10 分钟超时；连续输错 10 次锁定 2 分钟，TTY 里 <code>faillock --reset</code> 解锁。</li>
+<li>免密 sudo 的限时授权就是一个带 <code>NOTAFTER</code> 的 sudoers 文件，开机时被 tmpfiles 清掉（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/passwordless-sudo.md#L9-L23">passwordless-sudo.md</a>）。</li>
+<li>默认 LUKS 全盘加密（分区代码在外部 ISO 里）。</li>
+</ul>
+</div>
+<h2 id="s12">11. 端到端：按下 <code>Super+Ctrl+T</code> 到全系统换色</h2>
+<p>挑一条最能串起各组件的路径：用快捷键打开主题选择器，选一个主题。</p>
+
+<figure class="flow"><div class="flow-head">一次换主题经过的组件<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;一次换主题经过的组件&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;k&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;1 按键&quot;, &quot;s&quot;: &quot;Super+Ctrl+T&quot;, &quot;k&quot;: &quot;dark&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;h&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;2 Lua 绑定&quot;, &quot;s&quot;: &quot;{ menu = theme }&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;g&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;3 全局快捷键&quot;, &quot;s&quot;: &quot;不 fork 进程&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;m&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;4 菜单路由&quot;, &quot;s&quot;: &quot;别名 → 菜单项&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;p&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;5 图片选择器&quot;, &quot;s&quot;: &quot;进程内 summon&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;t&quot;, &quot;c&quot;: 4.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;6 theme-set&quot;, &quot;s&quot;: &quot;staging · 模板&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;s&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;7 shell 换色&quot;, &quot;s&quot;: &quot;IPC&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;8 应用重载&quot;, &quot;s&quot;: &quot;两组并行&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;hk&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;9 用户 hook&quot;, &quot;s&quot;: &quot;theme-set&quot;, &quot;k&quot;: &quot;ghost&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;k&quot;, &quot;b&quot;: &quot;h&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;h&quot;, &quot;b&quot;: &quot;g&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;g&quot;, &quot;b&quot;: &quot;m&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;m&quot;, &quot;b&quot;: &quot;p&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;p&quot;, &quot;b&quot;: &quot;t&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;t&quot;, &quot;b&quot;: &quot;s&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;s&quot;, &quot;b&quot;: &quot;a&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;hk&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 150.0, &quot;rh&quot;: 100.0, &quot;nw&quot;: 128.0}}"></div><figcaption>1–5 全在 shell 进程里完成，没有 spawn 任何进程；从第 6 步开始才执行 <code>omarchy-theme-set</code> 这个 bash 命令。外部的 OWE 壁纸引擎负责视频壁纸和开场动画。</figcaption></figure>
+<ol>
+<li>绑定：<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings/utilities.lua#L17">utilities.lua L17</a> <code>o.bind(&quot;SUPER + CTRL + T&quot;, &quot;Theme menu&quot;, { menu = &quot;theme&quot; })</code>。</li>
+<li><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L90">command_from</a> 看到 <code>menu</code>，因为 <code>shortcuts</code> 文件登记了 <code>menu theme</code>，<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua#L81">shell_dispatcher</a> 生成 <code>hl.dsp.global(&quot;omarchy:menu.theme&quot;)</code>。</li>
+<li>shell 里由 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/shell.qml#L1645">parseShortcuts</a> 注册的 GlobalShortcut 被触发，调用 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/shell.qml#L1659">runShortcut</a> → <code>shell.toggle(&quot;omarchy.menu&quot;, {menu:&quot;theme&quot;})</code>。</li>
+<li>菜单 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/menu/MenuModel.js#L203">resolveRoute</a> 把别名 <code>theme</code> 解析到 <code>appearance.theme</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/omarchy-menu.jsonc#L89">L89</a>），它是一个动作。</li>
+<li><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/menu/MenuModel.js#L624">summonAction</a> 认出动作是 <code>omarchy-shell shell summon omarchy.image-picker …</code>，于是在进程内打开图片选择器，用户确认后执行 <code>omarchy-theme-set &lt;名字&gt;</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/image-picker/ImagePicker.qml#L196">applySelected</a>）。CLI 路径 <code>omarchy theme set &quot;Tokyo Night&quot;</code> 从这里汇合：路由器快速路径找到 <code>omarchy-theme-set</code>，名字被规范化成 <code>tokyo-night</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set#L379">L379</a>）。</li>
+<li>staging、模板、原子替换（第 6 章）。</li>
+<li>shell 经 IPC 收到新调色板，顶栏、菜单、通知立即换色。</li>
+<li>终端、btop、Hyprland 先重载，GNOME、浏览器、VS Code 等随后并行。</li>
+<li>用户的 <code>~/.config/omarchy/hooks/theme-set*</code> 被执行；可选的跨机器同步（Herdr）默认关闭。</li>
+</ol>
+<h2 id="s13">12. 开源许可证</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>许可证</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>仓库代码与配置</td>
+<td>MIT，版权人 David Heinemeier Hansson</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/LICENSE">LICENSE</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/README.md#L75-L77">README</a></td>
+</tr>
+<tr>
+<td>ALSA UCM2 音频配置</td>
+<td>BSD 3-Clause（ALSA 项目）</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/alsa/ucm2">default/alsa/ucm2/</a> 下的 <code>LICENSE.*</code></td>
+</tr>
+<tr>
+<td>图标字体 <code>omarchy.ttf</code></td>
+<td>仓库只写了各字形的来源，没写许可证；其中是各公司的品牌标志</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/fonts/omarchy/README.md">fonts/omarchy/README.md</a></td>
+</tr>
+<tr>
+<td>主题壁纸</td>
+<td>仓库没有来源或授权说明</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/themes">themes/*/backgrounds/</a></td>
+</tr>
+<tr>
+<td>外部组件</td>
+<td>各自的许可证：Hyprland、Quickshell、Arch 包、omarchy-iso / omarchy-pkgs / omarchy-mac 等</td>
+<td>不在本仓库</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>大白话</strong>：MIT 允许使用、修改、再分发甚至商用，只要保留版权声明和许可声明，作者不提供担保。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>可以吗</th>
+<th>要做什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自己用、改自己的 <code>~/.config</code></td>
+<td>可以</td>
+<td>无</td>
+</tr>
+<tr>
+<td>给上游提 PR</td>
+<td>可以</td>
+<td>遵守 AGENTS.md 的规则；仓库里没有 CLA</td>
+</tr>
+<tr>
+<td>公开 fork / 做衍生发行版</td>
+<td>可以</td>
+<td>保留 LICENSE；建议换名换 logo——仓库没有商标政策，“Omarchy”名称和 logo 的立场需要另外确认</td>
+</tr>
+<tr>
+<td>打包分发壁纸或图标字体</td>
+<td>需要谨慎</td>
+<td>壁纸没有授权说明，图标字体里是第三方品牌标志，MIT 不覆盖它们</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>历史</strong>（用 git 历史核实）：仓库从 2025-06-01 开始（第一个提交 “Initial basics”，第二个是 “Match omakub better”——它源自 DHH 早先给 Ubuntu 做的 Omakub）；LICENSE 在 2025-06-30 加入，从一开始就是 MIT，之后只补上了版权人，从未更换。到固定的 commit 为止共 7709 个提交、649 位贡献者，DHH 约占 65%。</p>
+<blockquote>
+<p>以上不是法律意见。</p>
+</blockquote>
+<h2 id="s14">13. 贡献与定制</h2>
+<h3 id="s14-1">13.1 开发环境</h3>
+<ul>
+<li>想改 Omarchy 本身，切到 dev 通道：<code>omarchy-channel-set dev</code> 会把 <code>OMARCHY_PATH</code> 链接到 <code>~/omarchy</code> 的 git checkout（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-channel-set">channel-set</a>），之后 <code>omarchy update</code> 会对它 <code>git pull --ff-only</code>。</li>
+<li>测试入口：<code>./test/all</code>（CLI + shell 测试，不含图形验收）、<code>./test/cli</code>、<code>./test/shell</code>；只跑改动相关的文件，并把输出写进日志文件再读（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md#L132-L142">AGENTS.md · Tests</a>）。图形验收测试在一次性 VM 里通过同级的 <code>omarchy-iso</code> 仓库运行（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/agents/skills/acceptance-tests.md#L12">acceptance-tests.md</a>）。</li>
+<li>做不同类型的修改前先读 <a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/agents/skills">agents/skills/</a> 下对应的指南：命令元数据、安装脚本、mise 工具、shell 开发、动画、视觉验证、迁移。</li>
+</ul>
+<h3 id="s14-2">13.2 review 规则（摘自 AGENTS.md）</h3>
+<ul>
+<li>所有命令以 <code>omarchy-</code> 开头，按前缀分组；shebang 必须是 <code>#!/bin/bash</code>；用 <code>[[ ]]</code> 和 <code>(( ))</code>；两空格缩进。</li>
+<li>用 helper 而不是裸命令：<code>omarchy-pkg-add</code> / <code>omarchy-pkg-drop</code>、<code>omarchy-notification-send</code>、<code>omarchy-hw-*</code>（不要自己读 <code>uname -m</code>）。</li>
+<li>平台缺包或出 bug：先推动上游修，平台专属替代方案是最后手段。</li>
+<li>新快捷键按平面规则选键，不挪动已有绑定；新菜单项不加 <code>aliases</code>。</li>
+<li>测试必须在不带这次修改时失败；声明式改动（一行菜单、一个配置值）不写测试；迁移不写测试。</li>
+<li>有视觉效果的改动必须在运行中的 UI 里验证。</li>
+<li>commit 要原子化。</li>
+</ul>
+<h3 id="s14-3">13.3 定制路线</h3>
+
+<figure class="flow"><div class="flow-head">从轻到重的定制方式<span class="flow-hint">悬停节点查看连接</span></div><div class="flow-body" data-flow="{&quot;title&quot;: &quot;从轻到重的定制方式&quot;, &quot;nodes&quot;: [{&quot;id&quot;: &quot;a&quot;, &quot;c&quot;: 0.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;改 ~/.config&quot;, &quot;s&quot;: &quot;绑定 · 布局 · 顶栏&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;b&quot;, &quot;c&quot;: 1.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;hook 与菜单扩展&quot;, &quot;s&quot;: &quot;post-update · 菜单项&quot;, &quot;k&quot;: &quot;pass&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;c&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;自建主题与模板&quot;, &quot;s&quot;: &quot;themes/ · themed/&quot;, &quot;k&quot;: &quot;teal&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;d&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 0.0, &quot;t&quot;: &quot;shell 插件&quot;, &quot;s&quot;: &quot;clone 或自写 QML&quot;, &quot;k&quot;: &quot;vio&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;e&quot;, &quot;c&quot;: 3.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;dev 通道&quot;, &quot;s&quot;: &quot;改 Omarchy 本身&quot;, &quot;k&quot;: &quot;warn&quot;, &quot;w&quot;: 1.0}, {&quot;id&quot;: &quot;f&quot;, &quot;c&quot;: 2.0, &quot;r&quot;: 1.0, &quot;t&quot;: &quot;向上游提 PR&quot;, &quot;s&quot;: &quot;遵守 AGENTS.md&quot;, &quot;k&quot;: &quot;acc&quot;, &quot;w&quot;: 1.0}], &quot;edges&quot;: [{&quot;a&quot;: &quot;a&quot;, &quot;b&quot;: &quot;b&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;b&quot;, &quot;b&quot;: &quot;c&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;c&quot;, &quot;b&quot;: &quot;d&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;d&quot;, &quot;b&quot;: &quot;e&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}, {&quot;a&quot;: &quot;e&quot;, &quot;b&quot;: &quot;f&quot;, &quot;t&quot;: &quot;&quot;, &quot;k&quot;: &quot;&quot;, &quot;anim&quot;: false, &quot;dash&quot;: false}], &quot;groups&quot;: [], &quot;cfg&quot;: {&quot;cw&quot;: 190.0, &quot;rh&quot;: 92.0, &quot;nw&quot;: 160.0}}"></div><figcaption>前三种都不碰 <code>/usr/share/omarchy</code>，更新安全；插件没有沙箱，装别人的插件等于运行别人的代码；dev 通道下系统直接跑你的 checkout，改坏了要自己修。</figcaption></figure>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>代价</th>
+<th>依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改 <code>~/.config</code></td>
+<td>几乎为零</td>
+<td>理解第 4 章的加载顺序</td>
+</tr>
+<tr>
+<td>hook / 菜单扩展</td>
+<td>低</td>
+<td>hook 用 bash 执行</td>
+</tr>
+<tr>
+<td>自建主题、themed 模板</td>
+<td>低</td>
+<td>第 6 章的占位符语法</td>
+</tr>
+<tr>
+<td>shell 插件</td>
+<td>中：要写 QML，遵守“空闲不 spawn 进程”</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/omarchy-shell.md">omarchy-shell.md</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/README.md">plugins/README.md</a></td>
+</tr>
+<tr>
+<td>dev 通道 / 提 PR</td>
+<td>高：系统跑在你的 checkout 上</td>
+<td>测试与 review 规则</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="s14-4">13.4 仓库里没有的东西</h3>
+<ul>
+<li><strong>安装器与分区、LUKS 加密</strong>：在外部的 <code>omarchy-iso</code> 仓库。</li>
+<li><strong>打包脚本</strong>：<code>omarchy-pkgs</code> 仓库；pacman 仓库在 <code>pkgs.omarchy.org</code>（<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/pacman/pacman-stable.conf#L18-L20">pacman-stable.conf</a>）。</li>
+<li><strong>Apple Silicon 支持</strong>：<code>omarchy-mac</code> / <code>omarchy-mac-boot</code> 包，经 <a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-lifecycle-dispatch#L106-L115">lifecycle-dispatch</a> 调用，其他平台对应的操作都是 no-op。</li>
+<li><strong>独立程序</strong>：Omasnap（截图）、OWE（壁纸引擎）、<code>linux-omarchy</code> 内核、<code>omarchy-nvim</code>（Neovim 配置，本仓库没有 nvim 目录）、<code>omarchy-local-ai</code>、Omawrite / Omacalc / Signed 等小工具。</li>
+<li><strong>上游</strong>：Hyprland 的 Lua 配置 API、Quickshell。</li>
+</ul>
+<h2 id="s15">14. 附录：源码索引</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>主题</th>
+<th>入口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>贡献规则</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/AGENTS.md">AGENTS.md</a></td>
+</tr>
+<tr>
+<td>文件布局与安装位置</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/file-layout.md">docs/file-layout.md</a></td>
+</tr>
+<tr>
+<td>CLI 路由器</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy">bin/omarchy</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/cli-router.md">cli-router.md</a></td>
+</tr>
+<tr>
+<td>命令元数据规范</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/agents/skills/command-metadata.md">command-metadata.md</a></td>
+</tr>
+<tr>
+<td>系统级安装</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-apply-system">omarchy-apply-system</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/config/all.sh">install/config/all.sh</a></td>
+</tr>
+<tr>
+<td>用户级安装</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-provision-user">omarchy-provision-user</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/user/all.sh">install/user/all.sh</a></td>
+</tr>
+<tr>
+<td>包清单</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/install/omarchy-base.packages">omarchy-base.packages</a></td>
+</tr>
+<tr>
+<td>Hyprland 默认配置</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/omarchy.lua">default/hypr/omarchy.lua</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/helpers.lua">helpers.lua</a></td>
+</tr>
+<tr>
+<td>用户 Hyprland 入口</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/hypr/hyprland.lua">config/hypr/hyprland.lua</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/config/hypr/bindings.lua">bindings.lua</a></td>
+</tr>
+<tr>
+<td>默认快捷键</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/hypr/bindings">default/hypr/bindings/</a></td>
+</tr>
+<tr>
+<td>shell 根与 IPC</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/shell.qml">shell/shell.qml</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/omarchy-shell.md">omarchy-shell.md</a></td>
+</tr>
+<tr>
+<td>菜单</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/omarchy/omarchy-menu.jsonc">omarchy-menu.jsonc</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/shell/plugins/menu/Menu.qml">Menu.qml</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/menu.md">menu.md</a></td>
+</tr>
+<tr>
+<td>主题</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set">omarchy-theme-set</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-theme-set-templates">theme-set-templates</a>、<a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/themed">default/themed/</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/theming.md">theming.md</a></td>
+</tr>
+<tr>
+<td>更新</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-update">omarchy-update</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/docs/update-process.md">update-process.md</a></td>
+</tr>
+<tr>
+<td>迁移</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-migrate">omarchy-migrate</a>、<a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/migrations">migrations/</a></td>
+</tr>
+<tr>
+<td>快照与启动</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-snapshot">omarchy-snapshot</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/snapper/root">snapper/root</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/limine/limine.conf">limine.conf</a></td>
+</tr>
+<tr>
+<td>平台分派</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-hw-platform">omarchy-hw-platform</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-lifecycle-dispatch">lifecycle-dispatch</a></td>
+</tr>
+<tr>
+<td>代理 skill</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/default/agents/skills/omarchy/SKILL.md">SKILL.md</a>、<a class="src" href="https://github.com/omacom/omarchy/blob/e30e18c53ac8f3dbf028f797600f42400b3e2d81/bin/omarchy-agent">omarchy-agent</a></td>
+</tr>
+<tr>
+<td>用户手册</td>
+<td><a class="src" href="https://github.com/omacom/omarchy/tree/e30e18c53ac8f3dbf028f797600f42400b3e2d81/manual">manual/</a></td>
+</tr>
+</tbody>
+</table></div>
+
+
+</main>
+
+</div>
+<button class="theme-btn" type="button" id="theme-btn">◐ 主题</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+<script>
+/* ai-infra-dev-skills · shared page behaviour. Pure DOM, no dependencies, works from file:// and in print. */
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var BODY = document.body || document.documentElement;
+  var KEY = (BODY.getAttribute && BODY.getAttribute("data-store")) || "aids";
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem(KEY + ":" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(KEY + ":" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var PRINT = /[?&]print\b/.test(location.search) || window.__PRINT__;
+  function each(sel, fn, root) { Array.prototype.forEach.call((root || document).querySelectorAll(sel), fn); }
+
+  // ------------------------------------------------------------------ theme
+  function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+  applyTheme(PRINT ? "light" : store.get("theme", null));
+  function initTheme() {
+    var b = document.getElementById("theme-btn"); if (!b) return;
+    b.addEventListener("click", function () {
+      var cur = document.documentElement.getAttribute("data-theme");
+      var dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      applyTheme(dark ? "light" : "dark"); store.set("theme", dark ? "light" : "dark");
+    });
+  }
+
+  // ------------------------------------------------------------------ flow diagrams (React-Flow style, static SVG)
+  function el(tag, attrs, parent) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function txt(parent, x, y, s, cls, anchor) { var t = el("text", { x: x, y: y, "class": cls, "text-anchor": anchor || "middle" }, parent); t.textContent = s; return t; }
+  function renderFlow(host, spec) {
+    var cfg = spec.cfg || {}, CW = cfg.cw || 200, RH = cfg.rh || 88, NW = cfg.nw || 160, PAD = 26;
+    var N = {}, maxX = 0, maxY = 0;
+    spec.nodes.forEach(function (n) {
+      var w = NW * n.w, h = n.s ? 52 : 38, x = PAD + n.c * CW, y = PAD + 14 + n.r * RH;
+      N[n.id] = { n: n, x: x, y: y, w: w, h: h, cx: x + w / 2, cy: y + h / 2 };
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    });
+    var groups = (spec.groups || []).map(function (g) {
+      var x0 = PAD + g.c0 * CW - 14, y0 = PAD + 14 + g.r0 * RH - 28, x1 = PAD + g.c1 * CW + NW + 14, y1 = PAD + 14 + g.r1 * RH + 52 + 14;
+      maxX = Math.max(maxX, x1); maxY = Math.max(maxY, y1); return { g: g, x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    var W = maxX + PAD, H = maxY + PAD;
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, width: W, role: "img", "aria-label": spec.title });
+    var uid = "f" + Math.random().toString(36).slice(2, 8);
+    var pat = el("pattern", { id: uid + "dot", width: 16, height: 16, patternUnits: "userSpaceOnUse" }, el("defs", {}, svg));
+    el("circle", { cx: 1, cy: 1, r: 1, "class": "f-bgdot" }, pat);
+    var bg = el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#" + uid + "dot)" }, svg);
+    groups.forEach(function (G) {
+      var gg = el("g", { "class": "f-grp" + (G.g.k ? " k-" + G.g.k : "") }, svg);
+      el("rect", { x: G.x0, y: G.y0, width: G.x1 - G.x0, height: G.y1 - G.y0, rx: 10 }, gg);
+      txt(gg, G.x0 + 10, G.y0 + 15, G.g.t, "", "start");
+    });
+    var edgeLayer = el("g", {}, svg), nodeLayer = el("g", {}, svg), topLayer = el("g", {}, svg);
+    function side(A, B) {
+      var dx = B.cx - A.cx, dy = B.cy - A.cy;
+      if (Math.abs(dx) >= Math.abs(dy) * 0.9) return dx >= 0 ? ["r", "l"] : ["l", "r"];
+      return dy >= 0 ? ["b", "t"] : ["t", "b"];
+    }
+    function port(P, s) { return s === "r" ? [P.x + P.w, P.cy] : s === "l" ? [P.x, P.cy] : s === "t" ? [P.cx, P.y] : [P.cx, P.y + P.h]; }
+    function dir(s) { return s === "r" ? [1, 0] : s === "l" ? [-1, 0] : s === "t" ? [0, -1] : [0, 1]; }
+    var nodeEdges = {};
+    spec.edges.forEach(function (e) {
+      var as = e.a.split(":"), bs = e.b.split(":"), A = N[as[0]], B = N[bs[0]];
+      var auto = side(A, B), sa = as[1] || auto[0], sb = bs[1] || auto[1];
+      var p0 = port(A, sa), p3 = port(B, sb), d0 = dir(sa), d3 = dir(sb);
+      var dist = Math.hypot(p3[0] - p0[0], p3[1] - p0[1]), off = Math.max(36, Math.min(140, dist * 0.45));
+      if (sa === sb) off = Math.max(off, 60);
+      var p1 = [p0[0] + d0[0] * off, p0[1] + d0[1] * off], p2 = [p3[0] + d3[0] * (off + 6), p3[1] + d3[1] * (off + 6)];
+      var end = [p3[0] + d3[0] * 8, p3[1] + d3[1] * 8];
+      var k = e.k ? " k-" + e.k : "", eid = as[0] + ">" + bs[0];
+      var path = el("path", { d: "M" + p0 + " C" + p1 + " " + p2 + " " + end, "class": "f-e" + k + (e.anim ? " anim" : "") + (e.dash ? " dash" : ""), "data-edge": eid }, edgeLayer);
+      // arrowhead: tip on the target port, body outside the node, drawn above the nodes
+      var bx = p3[0] + d3[0] * 9, by = p3[1] + d3[1] * 9;
+      var ah = el("path", { d: "M" + p3 + " L" + (bx + d3[1] * 4.5) + "," + (by - d3[0] * 4.5) + " L" + (bx - d3[1] * 4.5) + "," + (by + d3[0] * 4.5) + " z", "class": "f-ah" + k, "data-edge": eid }, topLayer);
+      var items = [path, ah];
+      if (e.t) {
+        var t = 0.5, mx = Math.pow(1 - t, 3) * p0[0] + 3 * Math.pow(1 - t, 2) * t * p1[0] + 3 * (1 - t) * t * t * p2[0] + t * t * t * end[0];
+        var my = Math.pow(1 - t, 3) * p0[1] + 3 * Math.pow(1 - t, 2) * t * p1[1] + 3 * (1 - t) * t * t * p2[1] + t * t * t * end[1];
+        var lg = el("g", { "class": "f-el", "data-edge": eid }, topLayer);
+        var tw = 12; for (var ci = 0; ci < e.t.length; ci++) tw += e.t.charCodeAt(ci) > 0x2E7F ? 11.5 : 6.6; tw = Math.max(24, tw);
+        var horiz = (sa === "l" || sa === "r") && (sb === "l" || sb === "r");
+        var gap = horiz ? Math.abs(end[0] - p0[0]) : Math.abs(end[1] - p0[1]);
+        if (horiz && tw > gap - 6) my = Math.min(p0[1], end[1]) - 15;
+        else if (!horiz && sa !== sb && 20 > gap - 4) mx = Math.max(p0[0], end[0]) + tw / 2 + 8;
+        el("rect", { x: mx - tw / 2, y: my - 10, width: tw, height: 18, rx: 5 }, lg);
+        txt(lg, mx, my + 3.5, e.t, "");
+        items.push(lg);
+      }
+      [as[0], bs[0]].forEach(function (id) { (nodeEdges[id] = nodeEdges[id] || []).push({ items: items, other: id === as[0] ? bs[0] : as[0] }); });
+    });
+    var nodeEls = {};
+    spec.nodes.forEach(function (n) {
+      var P = N[n.id], g = el("g", { "class": "f-node" + (n.k ? " k-" + n.k : ""), "data-node": n.id }, nodeLayer);
+      el("rect", { x: P.x, y: P.y, width: P.w, height: P.h, rx: 9, "class": "f-box" }, g);
+      txt(g, P.cx, P.y + (n.s ? 21 : 23.5), n.t, "f-t");
+      if (n.s) txt(g, P.cx, P.y + 39, n.s, "f-s");
+      [[P.x, P.cy], [P.x + P.w, P.cy], [P.cx, P.y], [P.cx, P.y + P.h]].forEach(function (h) { el("circle", { cx: h[0], cy: h[1], r: 2.6, "class": "f-handle" }, g); });
+      nodeEls[n.id] = g;
+      g.addEventListener("mouseenter", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.add("f-on"); g.classList.add("hl");
+        (nodeEdges[n.id] || []).forEach(function (c) { c.items.forEach(function (x) { x.classList.add("hl"); }); nodeEls[c.other].classList.add("hl"); });
+      });
+      g.addEventListener("mouseleave", function () {
+        if (svg.classList.contains("f-step")) return;
+        svg.classList.remove("f-on"); each(".hl", function (x) { x.classList.remove("hl"); }, svg);
+      });
+    });
+    host.appendChild(svg);
+    try {   // grow the canvas to whatever was drawn (loop edges can swing outside the grid)
+      var bb = svg.getBBox(), x0 = Math.min(0, bb.x - 12), y0 = Math.min(0, bb.y - 12);
+      var x1 = Math.max(W, bb.x + bb.width + 12), y1 = Math.max(H, bb.y + bb.height + 12);
+      svg.setAttribute("viewBox", x0 + " " + y0 + " " + (x1 - x0) + " " + (y1 - y0)); svg.setAttribute("width", x1 - x0);
+      bg.setAttribute("x", x0); bg.setAttribute("y", y0); bg.setAttribute("width", x1 - x0); bg.setAttribute("height", y1 - y0);
+    } catch (err) {}
+  }
+  function initFlows() {
+    each(".flow-body[data-flow]", function (h) {
+      try { renderFlow(h, JSON.parse(h.getAttribute("data-flow"))); } catch (e) { h.textContent = "diagram error: " + e; }
+    });
+  }
+
+  // ------------------------------------------------------------------ steppers (with flow highlighting + autoplay)
+  function initStepper(root) {
+    var steps = Array.prototype.slice.call(root.querySelectorAll(":scope > .st-body > .step"));
+    if (!steps.length) return;
+    root.classList.add("js");
+    var count = root.querySelector(".st-count"), prev = root.querySelector(".st-prev"), next = root.querySelector(".st-next");
+    var play = root.querySelector(".st-play"), dotsBox = root.querySelector(".st-dots"), dia = root.querySelector(".st-diagram");
+    var seen = {}, cur = 0, timer = null;
+    var dots = steps.map(function (s, i) {
+      var b = document.createElement("button"); b.className = "st-dot"; b.type = "button"; b.textContent = String(i + 1);
+      b.title = (s.querySelector(".step-title") || {}).textContent || "";
+      b.addEventListener("click", function () { stop(); show(i); }); dotsBox.appendChild(b); return b;
+    });
+    function show(i) {
+      cur = Math.max(0, Math.min(steps.length - 1, i)); seen[cur] = true;
+      steps.forEach(function (s, j) { s.classList.toggle("active", j === cur); });
+      dots.forEach(function (d, j) { d.classList.toggle("on", j === cur); d.classList.toggle("seen", !!seen[j]); });
+      count.textContent = (cur + 1) + " / " + steps.length; prev.disabled = cur === 0; next.disabled = cur === steps.length - 1;
+      if (!dia) return;
+      var hl = (steps[cur].getAttribute("data-hl") || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+      each("svg", function (svg) { svg.classList.toggle("f-step", hl.length > 0); }, dia);
+      each("[data-node]", function (n) { n.classList.toggle("hl", hl.indexOf(n.getAttribute("data-node")) >= 0); }, dia);
+      each("[data-edge]", function (e) { var ab = e.getAttribute("data-edge").split(">"); e.classList.toggle("hl", hl.indexOf(ab[0]) >= 0 && hl.indexOf(ab[1]) >= 0); }, dia);
+    }
+    function stop() { if (timer) { clearInterval(timer); timer = null; play.textContent = play.getAttribute("data-play"); } }
+    play.addEventListener("click", function () {
+      if (timer) { stop(); return; }
+      if (cur === steps.length - 1) show(0);
+      play.textContent = play.getAttribute("data-pause");
+      timer = setInterval(function () { if (cur >= steps.length - 1) stop(); else show(cur + 1); }, 2600);
+    });
+    prev.addEventListener("click", function () { stop(); show(cur - 1); });
+    next.addEventListener("click", function () { stop(); show(cur + 1); });
+    root.setAttribute("tabindex", "0");
+    root.addEventListener("keydown", function (e) {
+      if (e.target !== root) return;
+      if (e.key === "ArrowRight") { stop(); show(cur + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { stop(); show(cur - 1); e.preventDefault(); }
+    });
+    show(0);
+  }
+
+  // ------------------------------------------------------------------ tabs, copy, scroll-spy, progress
+  function initTabs() {
+    each(".tabs", function (t) {
+      var btns = t.querySelectorAll(":scope > .tab-heads > .tab-btn"), panes = t.querySelectorAll(":scope > .tab-pane");
+      Array.prototype.forEach.call(btns, function (b, i) {
+        b.addEventListener("click", function () {
+          Array.prototype.forEach.call(btns, function (x, j) { x.classList.toggle("on", i === j); });
+          Array.prototype.forEach.call(panes, function (x, j) { x.classList.toggle("on", i === j); });
+        });
+      });
+    });
+  }
+  function initCopy() {
+    each(".codebox .copy", function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".codebox").querySelector("code").innerText, label = b.textContent;
+        var done = function () { b.textContent = BODY.getAttribute("data-copied") || "✓"; setTimeout(function () { b.textContent = label; }, 1200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(code).then(done, function () {}); else done();
+      });
+    });
+  }
+  function initSpy() {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".sidebar a[href^='#'], .outline a[href^='#']"));
+    if (!links.length) return;
+    var targets = links.map(function (a) { return document.getElementById(decodeURIComponent(a.getAttribute("href").slice(1))); });
+    function onScroll() {
+      var best = -1;
+      targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top < 130) best = i; });
+      var id = best >= 0 && targets[best] ? targets[best].id : null;
+      links.forEach(function (a) { a.classList.toggle("cur", !!id && a.getAttribute("href") === "#" + id); });
+    }
+    addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  }
+  function initProgress() {
+    var done = store.get("done", {}) || {};
+    var box = document.getElementById("done-box");
+    if (box) {
+      var id = box.getAttribute("data-id"); box.checked = !!done[id];
+      box.addEventListener("change", function () { var d = store.get("done", {}) || {}; if (box.checked) d[id] = true; else delete d[id]; store.set("done", d); });
+    }
+    each(".sidebar a[data-id]", function (a) { a.classList.toggle("done", !!done[a.getAttribute("data-id")]); });
+    var cards = document.querySelectorAll(".card[data-id]");
+    if (!cards.length) return;
+    function refresh() {
+      var d = store.get("done", {}) || {}, n = 0, mins = 0, total = 0;
+      Array.prototype.forEach.call(cards, function (c) {
+        var m = +c.getAttribute("data-min") || 0, on = !!d[c.getAttribute("data-id")]; total += m;
+        c.classList.toggle("done", on); var cb = c.querySelector("input.chk"); if (cb) cb.checked = on;
+        if (on) { n += 1; mins += m; }
+      });
+      var bar = document.getElementById("prog-bar"), t = document.getElementById("prog-text");
+      if (bar) bar.style.width = (100 * n / cards.length).toFixed(1) + "%";
+      if (t) t.textContent = (t.getAttribute("data-fmt") || "{n} / {N} · {m} / {M} min")
+        .replace("{n}", n).replace("{N}", cards.length).replace("{m}", mins).replace("{M}", total);
+    }
+    each("input.chk", function (cb) {
+      cb.addEventListener("click", function (e) { e.stopPropagation(); });
+      cb.addEventListener("change", function () {
+        var d = store.get("done", {}) || {}, id = cb.closest(".card").getAttribute("data-id");
+        if (cb.checked) d[id] = true; else delete d[id]; store.set("done", d); refresh();
+      });
+    });
+    refresh();
+  }
+
+  function boot() {
+    initTheme(); initFlows(); each(".stepper", initStepper); initTabs(); initCopy(); initSpy(); initProgress();
+    if (window.hljs) each("pre code[class*='language-']", function (c) { try { window.hljs.highlightElement(c); } catch (e) {} });
+    if (PRINT) each("details", function (d) { d.open = true; });
+    document.documentElement.setAttribute("data-ready", "1");
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+})();
+
+</script>
+</body>
+</html>

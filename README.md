@@ -20,6 +20,7 @@
 | `tailscale-report/` | Tailscale 客户端源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/tailscale-report/report.html) |
 | `searxng-report/` | SearXNG 源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/searxng-report/report.html) |
 | `verl-omni-report/` | VeRL-Omni 多模态生成式强化学习源码导读，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/verl-omni-report/report.html) |
+| `omarchy-report/` | Omarchy 4.0 源码导读与功能指南，含 PDF 版和构建源文件 | [阅读](https://kzhou003.github.io/adhoc-lean-grills/omarchy-report/report.html) |
 
 ## 添加新笔记
 
